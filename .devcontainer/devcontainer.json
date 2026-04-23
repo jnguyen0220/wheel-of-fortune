@@ -1,0 +1,54 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/debian
+{
+	"name": "Debian",
+	// Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
+	"image": "mcr.microsoft.com/devcontainers/base:trixie",
+	"features": {
+		"ghcr.io/devcontainers/features/common-utils:2": {
+			"username": "vscode",
+			"non-root": "true"
+		},
+		"ghcr.io/devcontainers/features/node:1": {},
+		"ghcr.io/devcontainers/features/rust:1": {}
+	},
+
+	// On Linux/WSL2, use host networking so the container shares the WSL2
+	// network namespace. This makes localhost inside the container resolve to
+	// the same loopback as WSL2, where Ollama is reachable.
+	"runArgs": ["--network=host"],
+
+	// Point any Ollama client inside the container at the host's Ollama daemon.
+	"containerEnv": {
+		"OLLAMA_HOST": "http://localhost:11434"
+	},
+
+	// Explicitly connect as the non-root user created above
+	"remoteUser": "vscode",
+
+	// Configure tool-specific properties.
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				// Next.js / Web
+				"ms-vscode.vscode-nextjs",
+				"dbaeumer.vscode-eslint",
+				"esbenp.prettier-vscode",
+				"bradlc.vscode-tailwindcss",
+				// Rust
+				"rust-lang.rust-analyzer",
+				"tamasfe.even-better-toml",
+				"serayuzgur.crates",
+				"vadimcn.vscode-lldb"
+			]
+		}
+	}
+
+	// Features to add to the dev container. More info: https://containers.dev/features.
+	// "features": {},
+
+	// Configure tool-specific properties moved above.
+
+	// Uncomment to connect as root instead. More info: https://aka.ms/dev-containers-non-root.
+	// "remoteUser": "root"
+}

@@ -1,0 +1,38 @@
+
+> frontend@0.1.0 dev
+> next dev
+
+▲ Next.js 16.2.4 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://10.255.255.254:3000
+- Environments: .env.local
+✓ Ready in 327ms
+
+ GET / 200 in 936ms (next.js: 806ms, application-code: 130ms)
+ GET / 200 in 33ms (next.js: 2ms, application-code: 31ms)
+ GET /api/ollama-models 200 in 87ms (next.js: 65ms, application-code: 21ms)
+ GET /api/ollama-models 200 in 9ms (next.js: 1892µs, application-code: 7ms)
+[ollama proxy] done_reason: stop content length: 3333 preview: ```json
+{
+  "system": {
+    "name": "Wheel System v1.0",
+    "description": "A dynamic options trading strategy based on volatility analysis and trend confirmation.",
+    "version": "1.0",
+    "created_at": "2024-03-20T12:59:18Z",
+    "modified_at": "2024-03-20T12:59:18Z",
+    "status": "active",
+  
+ POST /api/ollama 200 in 19.7s (next.js: 37ms, application-code: 19.7s)
+[ollama proxy] done_reason: stop content length: 1315 preview: ```json
+{
+  "system": {
+    "name": "Wheel System v1.0",
+    "version": "2023-08-15",
+    "description": "A dynamic options trading strategy focusing on high volatility and favorable risk-reward ratios.",
+    "strategy": "Options Trading",
+    "csp": "SOFI",
+    "cc": "Wheeler CC"
+  },
+  "input": {
+
+ POST /api/ollama 200 in 26.6s (next.js: 1801µs, application-code: 26.6s)

@@ -1,0 +1,86 @@
+import type {
+  Inventory,
+  StockHolding,
+  StockHoldingInput,
+  StockMarketData,
+  RecommendationRequest,
+  RecommendationResponse,
+} from "./types";
+
+// Use relative paths - Next.js will proxy to backend via rewrites
+const BASE_URL = "";
+
+// ── Generic fetch helper ─────────────────────────────────────────────────────
+
+async function apiFetch<T>(
+  path: string,
+  options?: RequestInit,
+): Promise<T> {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    headers: { "Content-Type": "application/json" },
+    ...options,
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`API error ${res.status}: ${body}`);
+  }
+
+  // Handle 204 No Content (empty response body)
+  if (res.status === 204) {
+    return undefined as unknown as T;
+  }
+
+  return res.json() as Promise<T>;
+}
+
+// ── Inventory API ────────────────────────────────────────────────────────────
+
+export async function getInventory(): Promise<Inventory> {
+  return apiFetch<Inventory>("/api/inventory");
+}
+
+export async function addHolding(
+  input: StockHoldingInput,
+): Promise<StockHolding> {
+  return apiFetch<StockHolding>("/api/inventory", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateHolding(
+  id: string,
+  input: StockHoldingInput,
+): Promise<StockHolding> {
+  return apiFetch<StockHolding>(`/api/inventory/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteHolding(id: string): Promise<void> {
+  await apiFetch<void>(`/api/inventory/${id}`, { method: "DELETE" });
+}
+
+// ── Market Data API ──────────────────────────────────────────────────────────
+
+export async function getMarketData(
+  tickers: string[],
+): Promise<Record<string, StockMarketData>> {
+  const params = tickers.join(",");
+  return apiFetch<Record<string, StockMarketData>>(
+    `/api/market-data?tickers=${encodeURIComponent(params)}`,
+  );
+}
+
+// ── Recommendations API ──────────────────────────────────────────────────────
+
+export async function getRecommendations(
+  req: RecommendationRequest,
+): Promise<RecommendationResponse> {
+  return apiFetch<RecommendationResponse>("/api/recommendations", {
+    method: "POST",
+    body: JSON.stringify(req),
+  });
+}

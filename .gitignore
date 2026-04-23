@@ -1,0 +1,18 @@
+# Node / Next
+frontend/node_modules/
+frontend/.next/
+
+# Rust
+backend/target/
+
+# Local env/secrets
+backend/.env
+.env
+
+# OS/editor
+.DS_Store
+.vscode/
+
+# Archives
+*.zip
+*.tar.gz
