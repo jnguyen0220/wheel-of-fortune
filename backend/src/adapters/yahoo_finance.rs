@@ -17,11 +17,13 @@
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use chrono::Datelike;
 use reqwest::Client;
 use serde::Deserialize;
 use tracing::{debug, instrument};
 
 use crate::adapters::OptionsDataProvider;
+use crate::models::{AnalystTrend, EarningsCalendar, EarningsResult};
 use crate::models::{OptionsChain, OptionsContract, OptionType, StockMarketData};
 
 // ── Market data response types ────────────────────────────────────────────────
@@ -179,7 +181,6 @@ struct YahooContract {
     open_interest: Option<u64>,
     implied_volatility: Option<f64>,
     expiration: i64,
-    in_the_money: Option<bool>,
 }
 
 // ── Black-Scholes helpers ─────────────────────────────────────────────────────
@@ -344,7 +345,7 @@ const YF_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) \
 /// Obtain a Yahoo Finance crumb using a fresh cookie-enabled HTTP client.
 ///
 /// Returns `(client_with_cookies, crumb_string)`.
-async fn acquire_crumb() -> Result<(Client, String)> {
+pub async fn acquire_crumb() -> Result<(Client, String)> {
     let client = Client::builder()
         .cookie_store(true)
         .user_agent(YF_USER_AGENT)
@@ -680,4 +681,271 @@ impl OptionsDataProvider for YahooFinanceAdapter {
             .context("Failed to build HTTP client")?;
         fetch_yahoo_market_data(&client, ticker).await
     }
+}
+
+// ── Earnings calendar & history ───────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct YahooCalendarEvents {
+    earnings: Option<YahooEarningsDates>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct YahooEarningsDates {
+    earnings_date: Option<Vec<YahooTimestamp>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct YahooTimestamp {
+    raw: Option<i64>,
+    fmt: Option<String>,
+}
+
+/// Yahoo Finance earnings history response.
+#[derive(Debug, Deserialize)]
+struct YahooEarningsHistoryOuter {
+    history: Option<Vec<YahooEarningsHistoryItem>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct YahooEarningsHistoryItem {
+    quarter: Option<YahooTimestamp>,
+    eps_estimate: Option<YahooNumeric>,
+    eps_actual: Option<YahooNumeric>,
+    eps_difference: Option<YahooNumeric>,
+}
+
+#[derive(Debug, Deserialize)]
+struct YahooNumeric {
+    raw: Option<f64>,
+}
+
+/// Quotesummary module response wrapper used for both calendar events and
+/// earnings history.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct QuoteSummaryEnvelope {
+    quote_summary: Option<QuoteSummaryInner>,
+}
+
+#[derive(Debug, Deserialize)]
+struct QuoteSummaryInner {
+    result: Option<Vec<QuoteSummaryResult>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct QuoteSummaryResult {
+    calendar_events: Option<YahooCalendarEvents>,
+    earnings_history: Option<YahooEarningsHistoryOuter>,
+    recommendation_trend: Option<YahooRecommendationTrend>,
+}
+
+/// Fetch upcoming earnings date(s) for a single ticker from Yahoo Finance.
+#[instrument(skip(client, crumb))]
+pub async fn fetch_earnings_calendar(
+    client: &Client,
+    crumb: &str,
+    ticker: &str,
+) -> Result<Vec<EarningsCalendar>> {
+    let url = format!(
+        "https://query1.finance.yahoo.com/v10/finance/quoteSummary/{ticker}?modules=calendarEvents&crumb={crumb}",
+        ticker = ticker.to_uppercase(),
+    );
+
+    let resp = client
+        .get(&url)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .context("Failed to fetch earnings calendar")?;
+
+    if !resp.status().is_success() {
+        anyhow::bail!("Yahoo Finance returned HTTP {} for earnings calendar of {}", resp.status(), ticker);
+    }
+
+    let envelope: QuoteSummaryEnvelope = resp
+        .json()
+        .await
+        .context("Failed to parse earnings calendar JSON")?;
+
+    let dates = envelope
+        .quote_summary
+        .and_then(|qs| qs.result)
+        .and_then(|r| r.into_iter().next())
+        .and_then(|r| r.calendar_events)
+        .and_then(|ce| ce.earnings)
+        .and_then(|e| e.earnings_date)
+        .unwrap_or_default();
+
+    let today = chrono::Local::now().naive_local().date();
+
+    let mut out = Vec::new();
+    for ts_val in dates {
+        if let Some(ts) = ts_val.raw {
+            if let Some(dt) = chrono::DateTime::<chrono::Utc>::from_timestamp(ts, 0) {
+                let date = dt.naive_utc().date();
+                let days_until = (date - today).num_days();
+                // Include dates up to 90 days out and recently past (up to 7 days ago)
+                if days_until >= -7 && days_until <= 90 {
+                    out.push(EarningsCalendar {
+                        ticker: ticker.to_uppercase(),
+                        earnings_date: date,
+                        days_until,
+                        time_of_day: ts_val.fmt.clone().unwrap_or_else(|| "TAS".to_string()),
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(out)
+}
+
+/// Fetch past earnings results (EPS history) for a single ticker from Yahoo Finance.
+#[instrument(skip(client, crumb))]
+pub async fn fetch_earnings_history(
+    client: &Client,
+    crumb: &str,
+    ticker: &str,
+) -> Result<Vec<EarningsResult>> {
+    let url = format!(
+        "https://query1.finance.yahoo.com/v10/finance/quoteSummary/{ticker}?modules=earningsHistory&crumb={crumb}",
+        ticker = ticker.to_uppercase(),
+    );
+
+    let resp = client
+        .get(&url)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .context("Failed to fetch earnings history")?;
+
+    if !resp.status().is_success() {
+        anyhow::bail!("Yahoo Finance returned HTTP {} for earnings history of {}", resp.status(), ticker);
+    }
+
+    let envelope: QuoteSummaryEnvelope = resp
+        .json()
+        .await
+        .context("Failed to parse earnings history JSON")?;
+
+    let history = envelope
+        .quote_summary
+        .and_then(|qs| qs.result)
+        .and_then(|r| r.into_iter().next())
+        .and_then(|r| r.earnings_history)
+        .and_then(|eh| eh.history)
+        .unwrap_or_default();
+
+    let mut out = Vec::new();
+    for item in history {
+        let quarter_ts = item.quarter.and_then(|q| q.raw).unwrap_or(0);
+        let report_date = chrono::DateTime::<chrono::Utc>::from_timestamp(quarter_ts, 0)
+            .map(|dt| dt.naive_utc().date())
+            .unwrap_or_else(|| chrono::NaiveDate::from_ymd_opt(2000, 1, 1).unwrap());
+
+        let eps_est = item.eps_estimate.and_then(|e| e.raw);
+        let eps_act = item.eps_actual.and_then(|e| e.raw);
+        let eps_diff = item.eps_difference.and_then(|e| e.raw);
+        let beat = match (eps_est, eps_act) {
+            (Some(est), Some(act)) => Some(act >= est),
+            _ => None,
+        };
+
+        // Derive a fiscal quarter label from the report date
+        let q = match report_date.month() {
+            1..=3 => "Q1",
+            4..=6 => "Q2",
+            7..=9 => "Q3",
+            _ => "Q4",
+        };
+        let fiscal_quarter = format!("{} {}", q, report_date.year());
+
+        out.push(EarningsResult {
+            ticker: ticker.to_uppercase(),
+            report_date,
+            fiscal_quarter,
+            eps_estimate: eps_est,
+            eps_actual: eps_act,
+            eps_surprise: eps_diff,
+            revenue_estimate: None,
+            revenue_actual: None,
+            beat,
+        });
+    }
+
+    Ok(out)
+}
+
+// ── Recommendation trend ──────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct YahooRecommendationTrend {
+    trend: Option<Vec<YahooTrendItem>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct YahooTrendItem {
+    period: Option<String>,
+    strong_buy: Option<u32>,
+    buy: Option<u32>,
+    hold: Option<u32>,
+    sell: Option<u32>,
+    strong_sell: Option<u32>,
+}
+
+/// Fetch analyst recommendation trends for a single ticker from Yahoo Finance.
+#[instrument(skip(client, crumb))]
+pub async fn fetch_recommendation_trend(
+    client: &Client,
+    crumb: &str,
+    ticker: &str,
+) -> Result<Vec<AnalystTrend>> {
+    let url = format!(
+        "https://query2.finance.yahoo.com/v10/finance/quoteSummary/{ticker}?modules=recommendationTrend&crumb={crumb}",
+        ticker = ticker.to_uppercase(),
+    );
+
+    let resp = client
+        .get(&url)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .context("Failed to fetch recommendation trend")?;
+
+    if !resp.status().is_success() {
+        anyhow::bail!("Yahoo Finance returned HTTP {} for recommendation trend of {}", resp.status(), ticker);
+    }
+
+    let envelope: QuoteSummaryEnvelope = resp
+        .json()
+        .await
+        .context("Failed to parse recommendation trend JSON")?;
+
+    let items = envelope
+        .quote_summary
+        .and_then(|qs| qs.result)
+        .and_then(|r| r.into_iter().next())
+        .and_then(|r| r.recommendation_trend)
+        .and_then(|rt| rt.trend)
+        .unwrap_or_default();
+
+    let out: Vec<AnalystTrend> = items
+        .into_iter()
+        .map(|item| AnalystTrend {
+            ticker: ticker.to_uppercase(),
+            period: item.period.unwrap_or_default(),
+            strong_buy: item.strong_buy.unwrap_or(0),
+            buy: item.buy.unwrap_or(0),
+            hold: item.hold.unwrap_or(0),
+            sell: item.sell.unwrap_or(0),
+            strong_sell: item.strong_sell.unwrap_or(0),
+        })
+        .collect();
+
+    Ok(out)
 }

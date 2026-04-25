@@ -93,6 +93,7 @@ pub fn evaluate_wheel(
         if shares_held >= 100 {
             let lots = (shares_held / 100) as usize;
 
+            // ── Strict CC filter pass ────────────────────────────────────────
             let mut cc_qualified: Vec<&OptionsContract> = chain
                 .contracts
                 .iter()
@@ -107,6 +108,28 @@ pub fn evaluate_wheel(
                         && c.cc_return_on_capital() >= MIN_ANNUALISED_ROC
                 })
                 .collect();
+
+            // ── Relaxed CC fallback ─────────────────────────────────────────
+            // Widens delta range, lowers OI floor and ROC bar so every ticker
+            // with ≥ 100 shares always gets at least one CC recommendation.
+            if cc_qualified.is_empty() {
+                tracing::debug!(ticker = %chain.ticker, "CC strict pass = 0, trying relaxed filters");
+                cc_qualified = chain
+                    .contracts
+                    .iter()
+                    .filter(|c| {
+                        c.option_type == OptionType::Call
+                            && c.dte >= MIN_DTE
+                            && c.dte <= MAX_DTE
+                            && c.delta.abs() >= 0.10
+                            && c.delta.abs() <= 0.50
+                            && c.open_interest >= 5
+                            && c.strike > chain.underlying_price
+                            && c.cc_return_on_capital() >= 5.0
+                    })
+                    .collect();
+                tracing::debug!(ticker = %chain.ticker, count = cc_qualified.len(), "CC relaxed pass");
+            }
 
             cc_qualified.sort_by(|a, b| {
                 let sa = compute_quality_score(a, a.cc_return_on_capital());
@@ -137,6 +160,9 @@ pub fn evaluate_wheel(
     }
 
     // ── Phase 2: Cash-Secured Puts — global cross-ticker optimization ──────────
+    //
+    // Skip entirely when no cash is available — CSPs require collateral.
+    if available_cash > 0.0 {
     //
     // Goals:
     //  1. Every ticker in the chains gets at least one CSP candidate (small/illiquid
@@ -241,76 +267,179 @@ pub fn evaluate_wheel(
     }
 
     if !all_csp.is_empty() {
-        // ── Per-ticker best contract ──────────────────────────────────────────
-        // For each ticker identify the index of its contract with the highest
-        // total premium.  Used as the input for stage allocation.
-        let mut ticker_best_idx: std::collections::HashMap<String, usize> =
+        // ── Per-ticker quality scoring ────────────────────────────────────────
+        let csp_quality = |c: &OptionsContract| -> f64 {
+            compute_quality_score(c, c.csp_return_on_capital())
+        };
+
+        // Group candidates by ticker, sorted by quality descending.
+        let mut by_ticker: std::collections::HashMap<String, Vec<usize>> =
             std::collections::HashMap::new();
-        let mut ticker_order: Vec<String> = Vec::new(); // insertion order = discovery order
-
         for (i, entry) in all_csp.iter().enumerate() {
-            let tp = compute_tp(&entry.contract);
-            let prev_tp = ticker_best_idx
-                .get(&entry.ticker)
-                .map(|&pi| compute_tp(&all_csp[pi].contract))
-                .unwrap_or(f64::NEG_INFINITY);
-
-            if tp > prev_tp {
-                if !ticker_best_idx.contains_key(&entry.ticker) {
-                    ticker_order.push(entry.ticker.clone());
-                }
-                ticker_best_idx.insert(entry.ticker.clone(), i);
-            }
+            by_ticker
+                .entry(entry.ticker.clone())
+                .or_default()
+                .push(i);
+        }
+        for indices in by_ticker.values_mut() {
+            indices.sort_by(|&a, &b| {
+                csp_quality(&all_csp[b].contract)
+                    .partial_cmp(&csp_quality(&all_csp[a].contract))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
         }
 
-        // Sort tickers by their best total premium (descending).
+        // Rank tickers by their best candidate's quality.
+        let mut ticker_order: Vec<String> = by_ticker.keys().cloned().collect();
         ticker_order.sort_by(|a, b| {
-            let ta = compute_tp(&all_csp[ticker_best_idx[a]].contract);
-            let tb = compute_tp(&all_csp[ticker_best_idx[b]].contract);
-            tb.partial_cmp(&ta).unwrap_or(std::cmp::Ordering::Equal)
+            let qa = csp_quality(&all_csp[by_ticker[a][0]].contract);
+            let qb = csp_quality(&all_csp[by_ticker[b][0]].contract);
+            qb.partial_cmp(&qa).unwrap_or(std::cmp::Ordering::Equal)
         });
 
-        // ── Multi-stage greedy allocation ─────────────────────────────────────
-        // Stage 1: best ticker → deploy as many contracts as available_cash allows.
-        // Stage 2: with remaining cash → next best ticker.
-        // Stage 3: further remainder → third ticker (if any).
-        // Stops when cash is exhausted or no more tickers remain.
+        // ── Diversified tier selection per ticker ─────────────────────────────
+        // Same logic as CC: pick up to 3 (strike, DTE) combos per ticker that
+        // differ in strike and/or DTE, with a diversity bonus.
+        let min_dte_gap: u32 = 5;
+
+        let select_csp_tiers = |indices: &[usize]| -> Vec<usize> {
+            if indices.is_empty() {
+                return vec![];
+            }
+            // First entry is the best quality.
+            let first = &all_csp[indices[0]].contract;
+            let underlying = first.underlying_price;
+            let min_strike_gap = (underlying * 0.01).max(1.0);
+
+            let mut tiers: Vec<usize> = vec![indices[0]];
+            let max_tiers = 3usize; // we'll allocate contracts across them later
+
+            while tiers.len() < max_tiers {
+                let mut best: Option<(usize, f64)> = None;
+
+                for &idx in indices {
+                    let c = &all_csp[idx].contract;
+
+                    // Skip exact duplicates.
+                    let is_dup = tiers.iter().any(|&ti| {
+                        let t = &all_csp[ti].contract;
+                        (t.strike - c.strike).abs() < 0.01 && t.dte == c.dte
+                    });
+                    if is_dup {
+                        continue;
+                    }
+
+                    // Must differ in at least one dimension from every chosen tier.
+                    let distinct = tiers.iter().all(|&ti| {
+                        let t = &all_csp[ti].contract;
+                        let diff_strike = (t.strike - c.strike).abs() >= min_strike_gap;
+                        let diff_dte = (t.dte as i32 - c.dte as i32).unsigned_abs() >= min_dte_gap;
+                        diff_strike || diff_dte
+                    });
+                    if !distinct {
+                        continue;
+                    }
+
+                    // Diversity bonus: +5 per dimension that differs from each existing tier.
+                    let diversity: f64 = tiers
+                        .iter()
+                        .map(|&ti| {
+                            let t = &all_csp[ti].contract;
+                            let s = if (t.strike - c.strike).abs() >= min_strike_gap { 5.0 } else { 0.0 };
+                            let d = if (t.dte as i32 - c.dte as i32).unsigned_abs() >= min_dte_gap { 5.0 } else { 0.0 };
+                            s + d
+                        })
+                        .sum();
+
+                    let score = csp_quality(c) + diversity;
+                    if best.map_or(true, |(_, bs)| score > bs) {
+                        best = Some((idx, score));
+                    }
+                }
+
+                match best {
+                    Some((idx, _)) => tiers.push(idx),
+                    None => break,
+                }
+            }
+
+            // Sort tiers: DTE ascending, then strike descending within each DTE.
+            tiers.sort_by(|&a, &b| {
+                let ca = &all_csp[a].contract;
+                let cb = &all_csp[b].contract;
+                ca.dte.cmp(&cb.dte).then_with(|| {
+                    cb.strike.partial_cmp(&ca.strike).unwrap_or(std::cmp::Ordering::Equal)
+                })
+            });
+
+            tiers
+        };
+
+        // ── Cash allocation across tickers, then across tiers within each ticker ─
         let mut stage_cash = available_cash;
-        // (index into all_csp, n_contracts, stage label)
-        let mut stages: Vec<(usize, u32, String)> = Vec::new();
+        // Collect all (tier_idx, n_contracts, ticker, stage_label) to emit.
+        let mut all_stages: Vec<(usize, u32, String)> = Vec::new();
+        let mut stage_ticker_set: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
 
         for (stage_pos, ticker) in ticker_order.iter().enumerate() {
             if stage_pos >= 3 { break; }
-            let idx = ticker_best_idx[ticker];
-            let capital = all_csp[idx].contract.strike * 100.0;
-            if capital <= 0.0 { continue; }
+            let indices = &by_ticker[ticker];
+            let tiers = select_csp_tiers(indices);
+            if tiers.is_empty() { continue; }
 
-            let n: u32 = if stage_cash.is_infinite() {
-                1
+            // How many total contracts can we afford at the cheapest tier strike?
+            let cheapest_collateral = tiers
+                .iter()
+                .map(|&ti| all_csp[ti].contract.strike * 100.0)
+                .fold(f64::INFINITY, f64::min);
+            if cheapest_collateral <= 0.0 { continue; }
+
+            let total_affordable: u32 = if stage_cash.is_infinite() {
+                tiers.len() as u32 // at least 1 per tier
             } else {
-                let n = (stage_cash / capital).floor() as u32;
-                if n == 0 { continue; } // can't fit even one contract — skip this ticker
+                let n = (stage_cash / cheapest_collateral).floor() as u32;
+                if n == 0 { continue; }
                 n
             };
 
-            if !stage_cash.is_infinite() {
-                stage_cash -= n as f64 * capital;
+            // Distribute contracts across tiers using allocate_lots.
+            let allocs = allocate_lots(total_affordable as usize, tiers.len());
+
+            let mut ticker_cash_used = 0.0_f64;
+            for (&tier_idx, &n) in tiers.iter().zip(allocs.iter()) {
+                let n = n as u32;
+                if n == 0 { continue; }
+                let collateral = all_csp[tier_idx].contract.strike * 100.0 * n as f64;
+                ticker_cash_used += collateral;
+
+                let label = if tiers.len() == 1 {
+                    match (stage_pos, ticker_order.len()) {
+                        (_, 1) => "optimal allocation".to_string(),
+                        (0, _) => format!("primary: ${:.0} ({} contracts)", collateral, n),
+                        (1, _) => format!("secondary: ${:.0} → {} contract{}", collateral, n, if n == 1 { "" } else { "s" }),
+                        _ => format!("tertiary: ${:.0} → {} contract{}", collateral, n, if n == 1 { "" } else { "s" }),
+                    }
+                } else {
+                    let tier_note = if tiers.len() >= 3 {
+                        let c = &all_csp[tier_idx].contract;
+                        if c.delta.abs() <= 0.24 { "conservative tranche" }
+                        else if c.delta.abs() >= 0.29 { "aggressive tranche" }
+                        else { "moderate tranche" }
+                    } else {
+                        "diversified tranche"
+                    };
+                    format!("{}: ${:.0} ({} contract{})",
+                        tier_note, collateral, n, if n == 1 { "" } else { "s" })
+                };
+
+                all_stages.push((tier_idx, n, label));
             }
 
-            let label = match (stage_pos, ticker_order.len()) {
-                (_, 1) => "optimal allocation".to_string(),
-                (0, _) => format!(
-                    "primary: deploy ${:.0} ({} contracts)",
-                    n as f64 * capital, n),
-                (1, _) => format!(
-                    "secondary: ${:.0} remaining → {} contract{}",
-                    n as f64 * capital, n, if n == 1 { "" } else { "s" }),
-                _ => format!(
-                    "tertiary: ${:.0} remaining → {} contract{}",
-                    n as f64 * capital, n, if n == 1 { "" } else { "s" }),
-            };
-
-            stages.push((idx, n, label));
+            if !stage_cash.is_infinite() {
+                stage_cash -= ticker_cash_used;
+            }
+            stage_ticker_set.insert(ticker.clone());
         }
 
         // ── Rationale builder ─────────────────────────────────────────────────
@@ -338,8 +467,16 @@ pub fn evaluate_wheel(
             )
         };
 
-        // ── Emit primary stage allocations ────────────────────────────────────
-        for (pos, (idx, n, label)) in stages.iter().enumerate() {
+        // ── Emit staged tier allocations ──────────────────────────────────────
+        let stage_keys: std::collections::HashSet<(String, u64, u32)> = all_stages
+            .iter()
+            .map(|(idx, _, _)| {
+                let e = &all_csp[*idx];
+                (e.ticker.clone(), (e.contract.strike * 100.0).round() as u64, e.contract.dte)
+            })
+            .collect();
+
+        for (pos, (idx, n, label)) in all_stages.iter().enumerate() {
             let entry = &all_csp[*idx];
             let roc = entry.contract.csp_return_on_capital();
             let score = compute_quality_score(&entry.contract, roc)
@@ -357,22 +494,10 @@ pub fn evaluate_wheel(
         }
 
         // ── Emit alternatives ─────────────────────────────────────────────────
-        // For tickers already in stages: show alternative strikes/DTEs.
-        // For tickers not in stages: show as "compare" so user can evaluate.
-        let stage_keys: std::collections::HashSet<(String, u64, u32)> = stages.iter()
-            .map(|(idx, _, _)| {
-                let e = &all_csp[*idx];
-                (e.ticker.clone(), (e.contract.strike * 100.0).round() as u64, e.contract.dte)
-            })
-            .collect();
-        let stage_tickers: std::collections::HashSet<&str> = stages.iter()
-            .map(|(idx, _, _)| all_csp[*idx].ticker.as_str())
-            .collect();
-
         let mut alt_sorted_indices: Vec<usize> = (0..all_csp.len()).collect();
         alt_sorted_indices.sort_by(|&a, &b| {
-            compute_tp(&all_csp[b].contract)
-                .partial_cmp(&compute_tp(&all_csp[a].contract))
+            csp_quality(&all_csp[b].contract)
+                .partial_cmp(&csp_quality(&all_csp[a].contract))
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
 
@@ -400,7 +525,7 @@ pub fn evaluate_wheel(
             let n = if available_cash.is_finite() && available_cash > 0.0 {
                 (available_cash / (entry.contract.strike * 100.0)).floor().max(1.0) as u32
             } else { 1 };
-            let label = if stage_tickers.contains(entry.ticker.as_str()) {
+            let label = if stage_ticker_set.contains(&entry.ticker) {
                 "alt strike/DTE"
             } else {
                 "compare: alternative ticker"
@@ -421,6 +546,8 @@ pub fn evaluate_wheel(
         }
     }
 
+    } // end if available_cash > 0.0
+
     // Sort: CCs and CSPs together by quality score.
     recommendations.sort_by(|a, b| {
         b.quality_score
@@ -431,46 +558,112 @@ pub fn evaluate_wheel(
     recommendations
 }
 
-// ── CC tiered strike selection ────────────────────────────────────────────────
+// ── CC tiered strike/DTE selection ────────────────────────────────────────────
 
-/// Select up to 3 strikes for covered-call tiering.
+/// Select up to 3 (strike, DTE) combos for covered-call diversification.
 ///
 /// Strategy:
-/// - **1 lot**: best single strike (max quality).
-/// - **2 lots**: best quality + one more conservative (higher) strike.
-/// - **≥3 lots**: up to 3 strikes – moderate (best quality), conservative
-///   (higher strike, more upside room), and, when ≥5 lots, aggressive
-///   (lower/higher premium strike).  Strikes must differ by at least 1 % of
-///   underlying to count as a separate tier.
+/// - **1 lot**: best single contract (max quality).
+/// - **2 lots**: best quality + a second contract that differs in strike
+///   and/or DTE from the first — with a diversity bonus so combos that vary
+///   in *both* dimensions are preferred.
+/// - **≥3/5 lots**: up to 3 contracts, each meaningfully different in strike
+///   *or* DTE from all previously chosen contracts.
+///
+/// Spreading lots across strike/DTE combos reduces concentration risk:
+/// different expiries avoid a single-date gamma event, and different strikes
+/// balance premium capture with upside participation.
 fn select_cc_tiers<'a>(
     sorted_by_quality: &[&'a OptionsContract],
     underlying: f64,
     lots: usize,
 ) -> Vec<&'a OptionsContract> {
     let min_strike_gap = (underlying * 0.01).max(1.0);
+    let min_dte_gap: u32 = 5; // minimum DTE difference to count as a separate expiry tier
     let max_tiers = if lots >= 5 { 3 } else if lots >= 2 { 2 } else { 1 };
+
+    if sorted_by_quality.is_empty() || max_tiers == 0 {
+        return vec![];
+    }
+
+    let quality =
+        |c: &OptionsContract| compute_quality_score(c, c.cc_return_on_capital());
 
     let mut tiers: Vec<&OptionsContract> = Vec::new();
 
-    for &contract in sorted_by_quality {
-        if tiers.len() >= max_tiers {
-            break;
+    // First pick: highest quality contract.
+    tiers.push(sorted_by_quality[0]);
+
+    // Subsequent picks: greedy selection that rewards diversity across both
+    // strike and DTE.  A diversity bonus is added on top of quality so that
+    // combos differing in both dimensions outrank those differing in only one.
+    while tiers.len() < max_tiers {
+        let mut best: Option<(usize, f64)> = None;
+
+        for (i, &contract) in sorted_by_quality.iter().enumerate() {
+            // Skip exact duplicates (same strike + same DTE).
+            let is_dup = tiers.iter().any(|t| {
+                (t.strike - contract.strike).abs() < 0.01 && t.dte == contract.dte
+            });
+            if is_dup {
+                continue;
+            }
+
+            // Must differ from every existing tier in at least one dimension.
+            let distinct = tiers.iter().all(|t| {
+                let diff_strike =
+                    (t.strike - contract.strike).abs() >= min_strike_gap;
+                let diff_dte = (t.dte as i32 - contract.dte as i32)
+                    .unsigned_abs()
+                    >= min_dte_gap;
+                diff_strike || diff_dte
+            });
+            if !distinct {
+                continue;
+            }
+
+            // Diversity bonus: +5 per existing tier where strike differs,
+            // +5 per existing tier where DTE differs.
+            let diversity: f64 = tiers
+                .iter()
+                .map(|t| {
+                    let s = if (t.strike - contract.strike).abs() >= min_strike_gap {
+                        5.0
+                    } else {
+                        0.0
+                    };
+                    let d = if (t.dte as i32 - contract.dte as i32).unsigned_abs()
+                        >= min_dte_gap
+                    {
+                        5.0
+                    } else {
+                        0.0
+                    };
+                    s + d
+                })
+                .sum();
+
+            let score = quality(contract) + diversity;
+            if best.map_or(true, |(_, bs)| score > bs) {
+                best = Some((i, score));
+            }
         }
-        // Ensure this strike is sufficiently different from all chosen strikes.
-        let distinct = tiers
-            .iter()
-            .all(|t| (t.strike - contract.strike).abs() >= min_strike_gap);
-        if distinct {
-            tiers.push(contract);
+
+        match best {
+            Some((idx, _)) => tiers.push(sorted_by_quality[idx]),
+            None => break,
         }
     }
 
-    // Sort tiers from highest strike (conservative) to lowest (aggressive)
-    // so the rationale labels map intuitively.
+    // Sort tiers: DTE ascending, then strike descending within each DTE.
     tiers.sort_by(|a, b| {
-        b.strike
-            .partial_cmp(&a.strike)
-            .unwrap_or(std::cmp::Ordering::Equal)
+        a.dte
+            .cmp(&b.dte)
+            .then_with(|| {
+                b.strike
+                    .partial_cmp(&a.strike)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
     });
 
     tiers
@@ -483,8 +676,11 @@ fn allocate_lots(lots: usize, n_tiers: usize) -> Vec<usize> {
     if n_tiers == 0 || lots == 0 {
         return vec![];
     }
-    if n_tiers == 1 {
-        return vec![lots];
+    if n_tiers == 1 || lots == 1 {
+        // Only 1 lot: give it to the first tier, zeros for the rest.
+        let mut v = vec![0; n_tiers];
+        v[0] = lots;
+        return v;
     }
     if n_tiers == 2 {
         let t1 = (lots as f64 * 0.60).round() as usize;
@@ -492,6 +688,10 @@ fn allocate_lots(lots: usize, n_tiers: usize) -> Vec<usize> {
         return vec![t1, lots - t1];
     }
     // 3 tiers: conservative 40 %, moderate 40 %, aggressive 20 %
+    if lots == 2 {
+        // Not enough for 3 tiers; split across first two.
+        return vec![1, 1, 0];
+    }
     let t1 = (lots as f64 * 0.40).round() as usize;
     let t1 = t1.max(1).min(lots - 2); // leave room for the other two
     let t3 = (lots as f64 * 0.20).round() as usize;
@@ -541,6 +741,8 @@ fn format_cc_rationale(c: &OptionsContract, roc: f64, shares: u32, contracts: us
         } else {
             "Moderate tranche"
         }
+    } else if total_lots >= 2 {
+        "Diversified tranche"
     } else {
         "Position"
     };
@@ -554,7 +756,7 @@ fn format_cc_rationale(c: &OptionsContract, roc: f64, shares: u32, contracts: us
     };
 
     format!(
-        "{contracts_note}Sell the ${:.0} call expiring in {} DTE \
+        "{contracts_note}Sell the ${:.0} call, {} DTE \
          (delta {:.2}, IV {:.0}%) against {shares} shares. \
          Mid premium: ${:.2}/contract. Annualised ROC: {:.1}%. \
          Strike is {:.1}% OTM, {}.",

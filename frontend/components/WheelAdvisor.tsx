@@ -2,13 +2,18 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type {
+  AnalystTrend,
+  EarningsCalendar,
+  EarningsResult,
   LlmPrompt,
-  RecommendationResponse,
   StockHolding,
+  WheelRecommendation,
 } from "@/lib/types";
 import {
+  getAnalystTrends,
+  getEarningsCalendar,
+  getEarningsHistory,
   getInventory,
-  getMarketData,
   getRecommendations,
 } from "@/lib/api";
 import InventoryForm from "./InventoryForm";
@@ -17,17 +22,31 @@ import LlmAnalysis from "./LlmAnalysis";
 export default function WheelAdvisor() {
   const [holdings, setHoldings] = useState<StockHolding[]>([]);
   const [availableCash, setAvailableCash] = useState<number>(0);
-  const [minPremiumAbs, setMinPremiumAbs] = useState<number>(0.25);
-  const [minPremiumPct, setMinPremiumPct] = useState<number>(0.0015);
-  const [watchlist, setWatchlist] = useState<{ ticker: string; price: number | null }[]>([]);
-  const [watchlistInput, setWatchlistInput] = useState("");
   const [llmPrompt, setLlmPrompt] = useState<LlmPrompt | null>(null);
-  const [validStrikes, setValidStrikes] = useState<Record<string, Record<string, number[]>>>({});
+  const [recommendations, setRecommendations] = useState<WheelRecommendation[]>([]);
+  const [earningsCalendar, setEarningsCalendar] = useState<Record<string, EarningsCalendar[]>>({});
+  const [earningsHistory, setEarningsHistory] = useState<Record<string, EarningsResult[]>>({});
+  const [analystTrends, setAnalystTrends] = useState<Record<string, AnalystTrend[]>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tickersWithoutOptions, setTickersWithoutOptions] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<"inventory" | "ai">(
     "inventory",
   );
+
+  // Ollama model list — fetched once, passed to LlmAnalysis
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [ollamaModelsLoading, setOllamaModelsLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/ollama-models")
+      .then((r) => r.json())
+      .then((data: { models: string[] }) => {
+        setOllamaModels(data.models ?? []);
+      })
+      .catch(() => setOllamaModels([]))
+      .finally(() => setOllamaModelsLoading(false));
+  }, []);
 
   const refreshInventory = useCallback(async () => {
     try {
@@ -45,53 +64,31 @@ export default function WheelAdvisor() {
     return () => clearTimeout(timer);
   }, [refreshInventory]);
 
-  async function addWatchlistTicker(e: React.FormEvent) {
-    e.preventDefault();
-    const tickers = watchlistInput
-      .split(",")
-      .map(s => s.trim().toUpperCase())
-      .filter(Boolean);
-    if (tickers.length === 0) return;
-    setWatchlistInput("");
-
-    const newTickers = tickers.filter(
-      t => !watchlist.some(w => w.ticker === t) && !holdings.some(h => h.ticker === t)
-    );
-    if (newTickers.length === 0) return;
-
-    // Optimistically add all with null price, then fetch
-    setWatchlist(prev => [...prev, ...newTickers.map(t => ({ ticker: t, price: null }))]);
-    try {
-      const data = await getMarketData(newTickers);
-      setWatchlist(prev => prev.map(w => newTickers.includes(w.ticker) ? { ...w, price: data[w.ticker]?.price ?? null } : w));
-    } catch {
-      // leave price as null — not critical
-    }
-  }
-
-  function removeWatchlistTicker(t: string) {
-    setWatchlist(prev => prev.filter(w => w.ticker !== t));
-  }
-
   async function runRecommendations() {
-    const holdingTickers = holdings.map((h) => h.ticker);
-    const tickers = [...new Set([...holdingTickers, ...watchlist.map(w => w.ticker)])];
+    const tickers = [...new Set(holdings.map((h) => h.ticker))];
     if (tickers.length === 0) {
-      setError("Add holdings or watchlist tickers first.");
+      setError("Add tickers first.");
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      const result: RecommendationResponse = await getRecommendations({
-        inventory: { holdings },
-        tickers,
-        available_cash: availableCash,
-        min_premium_abs: minPremiumAbs,
-        min_premium_pct: minPremiumPct,
-      });
+      const [result, earnings, history, trends] = await Promise.all([
+        getRecommendations({
+          inventory: { holdings },
+          tickers,
+          available_cash: availableCash,
+        }),
+        getEarningsCalendar(tickers).catch(() => ({} as Record<string, EarningsCalendar[]>)),
+        getEarningsHistory(tickers).catch(() => ({} as Record<string, EarningsResult[]>)),
+        getAnalystTrends(tickers).catch(() => ({} as Record<string, AnalystTrend[]>)),
+      ]);
       setLlmPrompt(result.llm_prompt);
-      setValidStrikes(result.valid_strikes ?? {});
+      setRecommendations(result.recommendations ?? []);
+      setTickersWithoutOptions(result.tickers_without_options ?? []);
+      setEarningsCalendar(earnings);
+      setEarningsHistory(history);
+      setAnalystTrends(trends);
       setActiveTab("ai");
     } catch (err) {
       setError(
@@ -103,84 +100,92 @@ export default function WheelAdvisor() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-[#0d1117]">
       {/* Header */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-20 shadow-sm">
-        <div className="max-w-7xl mx-auto px-8 py-6 flex items-center gap-4">
-          <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow">
-            <span className="text-white font-bold text-lg">💰</span>
+      <header className="bg-[#161b22] border-b border-[#30363d] sticky top-0 z-20">
+        <div className="max-w-7xl mx-auto px-6 py-3 flex items-center gap-3">
+          <div className="w-7 h-7 bg-[#3fb950] rounded flex items-center justify-center">
+            <svg className="w-4 h-4 text-[#0d1117]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5" />
+            </svg>
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Wheel Advisor</h1>
-            <p className="text-xs text-slate-500 font-medium">Systematic options income strategy</p>
+            <h1 className="text-sm font-semibold text-[#c9d1d9]">Wheel Advisor</h1>
+            <p className="text-[10px] text-[#8b949e]">Options income strategy</p>
           </div>
         </div>
       </header>
 
-      <div className="max-w-7xl mx-auto px-8 pt-8">
+      <div className="max-w-7xl mx-auto px-6 pt-4">
         {/* Tab nav + run button in one row */}
-        <div className="flex items-center gap-4 mb-8">
-          <div className="flex gap-2 bg-white border border-slate-200 rounded-xl p-1.5 shadow-sm">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="flex bg-[#161b22] border border-[#30363d] rounded p-0.5">
             {(
               [
-                { key: "inventory", label: "Portfolio Inventory", icon: "📋" },
-                { key: "ai", label: "AI Analysis", icon: "🤖" },
+                { key: "inventory", label: "Portfolio" },
+                { key: "ai", label: "Trade Desk" },
               ] as const
-            ).map(({ key, label, icon }) => (
+            ).map(({ key, label }) => (
               <button
                 key={key}
                 onClick={() => setActiveTab(key)}
                 disabled={key === "ai" && !llmPrompt}
-                className={`px-4 py-2.5 text-sm font-semibold rounded-lg transition ${
+                className={`px-4 py-1.5 text-xs font-medium rounded transition ${
                   activeTab === key
-                    ? "bg-indigo-600 text-white shadow"
-                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                    ? "bg-[#30363d] text-[#c9d1d9]"
+                    : "text-[#8b949e] hover:text-[#c9d1d9] disabled:opacity-30 disabled:cursor-not-allowed"
                 }`}
               >
-                <span className="mr-1.5">{icon}</span>
                 {label}
               </button>
             ))}
           </div>
 
-          <button
-            onClick={runRecommendations}
-            disabled={loading || (holdings.length === 0 && watchlist.length === 0)}
-            className="ml-auto bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold px-8 py-2.5 rounded-lg transition shadow disabled:shadow-none text-sm"
-          >
-            {loading ? "🔄 Generating…" : "✨ Generate Recommendations"}
-          </button>
+          <div className="ml-auto flex items-center gap-3">
+            {holdings.length === 0 && (
+              <p className="text-[#8b949e] text-xs">Add tickers first</p>
+            )}
+            <button
+              onClick={runRecommendations}
+              disabled={loading || holdings.length === 0}
+              className="bg-[#238636] hover:bg-[#2ea043] disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium px-5 py-1.5 rounded transition text-xs flex items-center gap-1.5"
+            >
+              {loading ? (
+                <>
+                  <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+                  </svg>
+                  Generating…
+                </>
+              ) : (
+                <>
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+                  </svg>
+                  Generate
+                </>
+              )}
+            </button>
+          </div>
 
-          {holdings.length === 0 && watchlist.length === 0 && (
-            <p className="text-slate-400 text-sm">Add holdings or watchlist tickers first</p>
-          )}
           {error && (
-            <p className="text-red-600 text-sm font-semibold bg-red-50 px-4 py-2 rounded-lg border border-red-300">{error}</p>
+            <p className="text-[#f85149] text-xs font-medium bg-[#f8514915] px-3 py-1.5 rounded border border-[#f8514930]">{error}</p>
           )}
         </div>
 
-        {/* Tab content — always mounted, hidden via CSS to preserve state */}
-        <div className="pb-20">
+        {/* Tab content */}
+        <div className="pb-12">
           <div className={activeTab === "inventory" ? "" : "hidden"}>
             <InventoryForm
               holdings={holdings}
               onChanged={refreshInventory}
               availableCash={availableCash}
               onCashChanged={setAvailableCash}
-              minPremiumAbs={minPremiumAbs}
-              minPremiumPct={minPremiumPct}
-              onMinPremiumAbsChanged={setMinPremiumAbs}
-              onMinPremiumPctChanged={setMinPremiumPct}
-              watchlist={watchlist}
-              watchlistInput={watchlistInput}
-              onWatchlistInputChange={setWatchlistInput}
-              onAddWatchlistTicker={addWatchlistTicker}
-              onRemoveWatchlistTicker={removeWatchlistTicker}
             />
           </div>
 
           <div className={activeTab === "ai" ? "" : "hidden"}>
-            {llmPrompt && <LlmAnalysis prompt={llmPrompt} autoRun={true} validStrikes={validStrikes} holdings={holdings} />}
+            {llmPrompt && <LlmAnalysis prompt={llmPrompt} recommendations={recommendations} ollamaModels={ollamaModels} ollamaModelsLoading={ollamaModelsLoading} earningsCalendar={earningsCalendar} earningsHistory={earningsHistory} analystTrends={analystTrends} tickersWithoutOptions={tickersWithoutOptions} />}
           </div>
         </div>
       </div>

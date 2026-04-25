@@ -1,42 +1,50 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f8fafc;
-  --foreground: #0f172a;
-  --primary: #4f46e5;
-  --primary-dark: #4338ca;
-  --accent: #06b6d4;
+  --background: #0d1117;
+  --foreground: #c9d1d9;
+  --surface: #161b22;
+  --surface-raised: #1c2128;
+  --border: #30363d;
+  --border-light: #21262d;
+  --muted: #8b949e;
+  --accent-green: #3fb950;
+  --accent-red: #f85149;
+  --accent-blue: #58a6ff;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-border: var(--border);
+  --color-border-light: var(--border-light);
+  --color-muted: var(--muted);
+  --color-accent-green: var(--accent-green);
+  --color-accent-red: var(--accent-red);
+  --color-accent-blue: var(--accent-blue);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0f172a;
-    --foreground: #f1f5f9;
-  }
-}
-
 html {
+  color-scheme: dark;
   scroll-behavior: smooth;
 }
 
 body {
-  background: linear-gradient(135deg, var(--background) 0%, #f1f5f9 100%);
+  background: var(--background);
   color: var(--foreground);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
-  font-feature-settings: 'rlig' 1, 'calt' 1;
+  font-feature-settings: 'rlig' 1, 'calt' 1, 'tnum' 1;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-* {
-  @apply transition-all duration-200;
+/* Tabular numbers everywhere for data alignment */
+table, .tabular-nums {
+  font-variant-numeric: tabular-nums;
 }
 
 /* Better focus states */
@@ -44,5 +52,32 @@ input:focus,
 button:focus,
 select:focus,
 textarea:focus {
-  @apply outline-none ring-2 ring-indigo-500 ring-offset-2;
+  @apply outline-none ring-1 ring-[var(--accent-blue)] ring-offset-0;
+}
+
+/* Override browser autofill white background */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px #0d1117 inset !important;
+  -webkit-text-fill-color: #c9d1d9 !important;
+  caret-color: #c9d1d9 !important;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--background);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
 }

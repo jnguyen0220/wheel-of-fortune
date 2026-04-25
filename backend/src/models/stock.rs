@@ -56,8 +56,4 @@ pub struct Inventory {
     pub holdings: Vec<StockHolding>,
 }
 
-impl Inventory {
-    pub fn total_market_value(&self) -> f64 {
-        self.holdings.iter().map(|h| h.market_value()).sum()
-    }
-}
+

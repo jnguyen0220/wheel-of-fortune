@@ -46,6 +46,7 @@ struct MarketDataCandlesResponse {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[allow(non_snake_case)]
 struct MarketDataChainResponse {
     pub s: String, // "ok" or "error"
     pub strike: Vec<f64>,
@@ -61,29 +62,11 @@ struct MarketDataChainResponse {
     pub theta: Vec<Option<f64>>,
     pub side: Vec<String>,
     pub dte: Vec<u32>,
-    pub underlying: Vec<String>,
+    #[serde(alias = "underlying")]
+    pub _underlying: Vec<String>,
     pub underlyingPrice: Vec<f64>,
     pub expiration: Vec<i64>,
     pub errmsg: Option<String>,
-    // Additional optional fields from MarketData.app
-    #[serde(default)]
-    pub optionSymbol: Vec<Option<String>>,
-    #[serde(default)]
-    pub bidSize: Vec<Option<u64>>,
-    #[serde(default)]
-    pub askSize: Vec<Option<u64>>,
-    #[serde(default)]
-    pub mid: Vec<Option<f64>>,
-    #[serde(default)]
-    pub extrinsicValue: Vec<Option<f64>>,
-    #[serde(default)]
-    pub intrinsicValue: Vec<Option<f64>>,
-    #[serde(default)]
-    pub inTheMoney: Vec<Option<bool>>,
-    #[serde(default)]
-    pub firstTraded: Vec<Option<i64>>,
-    #[serde(default)]
-    pub updated: Vec<Option<i64>>,
 }
 
 // ── Adapter ───────────────────────────────────────────────────────────────────

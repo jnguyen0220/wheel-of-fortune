@@ -10,8 +10,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::error;
 
-use crate::llm::prompt::{build_llm_prompt, build_valid_strikes};
+use crate::llm::prompt::build_ranking_prompt;
 use crate::models::{Inventory, StockMarketData};
+use crate::strategy::wheel::{evaluate_wheel, WheelRecommendation};
 use crate::AppState;
 
 pub fn router(state: Arc<AppState>) -> Router {
@@ -31,25 +32,19 @@ pub struct RecommendationRequest {
     pub tickers: Vec<String>,
     /// Available cash for CSP recommendations (in dollars)
     pub available_cash: Option<f64>,
-    /// Minimum premium per share (absolute dollars). Optional; defaults applied server-side.
-    pub min_premium_abs: Option<f64>,
-    /// Minimum premium per share (percent of strike, e.g. 0.0015 = 0.15%). Optional; defaults applied server-side.
-    pub min_premium_pct: Option<f64>,
-    /// Preferred data source: "json" for mock data, "api" for live market data.
-    /// Optional; if omitted, uses the configured default.
-    pub data_source: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct RecommendationResponse {
     pub market_data: HashMap<String, StockMarketData>,
-    /// The LLM prompt ready to send to the AI for analysis.
+    /// Pre-computed trade candidates from the wheel strategy engine.
+    pub recommendations: Vec<WheelRecommendation>,
+    /// The LLM prompt that asks the model to rank the pre-computed trades.
     pub llm_prompt: crate::llm::prompt::LlmPrompt,
     /// Adapter used to fetch options data.
     pub data_source: String,
-    /// Valid strikes for each ticker and type ("CC"/"CSP").
-    /// Frontend uses this to validate and snap LLM-hallucinated strikes.
-    pub valid_strikes: HashMap<String, HashMap<String, Vec<f64>>>,
+    /// Tickers that were requested but had no options chain data.
+    pub tickers_without_options: Vec<String>,
 }
 
 /// POST /api/recommendations
@@ -119,6 +114,15 @@ async fn get_recommendations(
 
     let data_source = state.options_provider.adapter_name().to_string();
 
+    // Identify tickers that had no options chain returned.
+    let tickers_with_chains: std::collections::HashSet<String> =
+        chains.iter().map(|c| c.ticker.to_uppercase()).collect();
+    let tickers_without_options: Vec<String> = merged_tickers
+        .iter()
+        .filter(|t| !tickers_with_chains.contains(t.as_str()))
+        .cloned()
+        .collect();
+
     // Build market data for each ticker — fetch concurrently.
     let market_data_tasks: Vec<_> = chains
         .iter()
@@ -177,25 +181,23 @@ async fn get_recommendations(
     }
 
     let available_cash = req.available_cash.unwrap_or(f64::INFINITY);
-    let min_premium_abs = req.min_premium_abs.unwrap_or(0.25).max(0.0);
-    let min_premium_pct = req.min_premium_pct.unwrap_or(0.0015).max(0.0);
 
-    // Build LLM prompt directly from the raw options chains.
-    // The LLM is the recommendation engine — no mechanical pre-filter.
-    let llm_prompt = build_llm_prompt(
-        &inventory,
+    // Run the wheel strategy engine to get pre-computed, validated trades.
+    let recommendations = evaluate_wheel(
+        &inventory.holdings,
         &chains,
         available_cash,
-        min_premium_abs,
-        min_premium_pct,
     );
-    let valid_strikes = build_valid_strikes(&inventory, &chains, min_premium_abs, min_premium_pct);
+
+    // Build an LLM prompt that asks the model to rank these pre-computed trades.
+    let llm_prompt = build_ranking_prompt(&recommendations, &inventory, available_cash);
 
     Json(RecommendationResponse {
         market_data,
+        recommendations,
         llm_prompt,
         data_source,
-        valid_strikes,
+        tickers_without_options,
     })
     .into_response()
 }

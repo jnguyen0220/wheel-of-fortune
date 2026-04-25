@@ -1,3 +1,5 @@
+pub mod analyst;
+pub mod earnings;
 pub mod inventory;
 pub mod market_data;
 pub mod prices;
@@ -24,4 +26,6 @@ fn api_routes(state: Arc<AppState>) -> Router {
         .nest("/market-data", market_data::router(state.clone()))
         .nest("/prices", prices::router(state.clone()))
         .nest("/recommendations", recommendations::router(state))
+        .nest("/earnings", earnings::router())
+        .nest("/analyst-trends", analyst::router())
 }

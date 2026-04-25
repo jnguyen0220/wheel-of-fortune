@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
+// Allow up to 5 minutes for CPU-only Ollama inference.
+export const maxDuration = 300;
+
 /**
  * Proxy route: POST /api/ollama
  *
@@ -18,9 +21,14 @@ export async function POST(req: NextRequest) {
 
   let upstreamRes: Response;
   try {
+    // Allow up to 5 minutes — Ollama on CPU can be very slow.
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5 * 60 * 1000);
+
     upstreamRes = await fetch(`${ollamaBase}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
       body: JSON.stringify({
         model: body.model,
         messages: body.messages,
@@ -32,6 +40,8 @@ export async function POST(req: NextRequest) {
         },
       }),
     });
+
+    clearTimeout(timeout);
   } catch (err) {
     return NextResponse.json(
       { error: `Could not reach Ollama at ${ollamaBase}: ${String(err)}` },

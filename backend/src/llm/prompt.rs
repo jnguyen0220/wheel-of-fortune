@@ -1,13 +1,13 @@
 //! LLM Prompt Builder for the Wheel Strategy Advisor
 //!
-//! Builds a prompt from raw options chain data and sends it directly to
-//! the LLM.  The LLM is the recommendation engine — it selects strikes,
-//! allocates contracts, and produces the final trade list.
+//! Builds a ranking prompt from pre-computed wheel strategy trades.
+//! The recommendation engine has already filtered and validated all trades —
+//! the LLM's job is to rank them and provide rationale.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
-use crate::models::{Inventory, OptionsChain, OptionsContract};
+use crate::models::Inventory;
+use crate::strategy::wheel::{WheelLeg, WheelRecommendation};
 
 // ── Prompt payloads ───────────────────────────────────────────────────────────
 
@@ -22,50 +22,6 @@ pub struct LlmPrompt {
     pub messages: Vec<ChatMessage>,
     pub temperature: f64,
     pub max_tokens: u32,
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-fn ann_roc_csp(c: &OptionsContract) -> f64 {
-    if c.strike == 0.0 || c.dte == 0 {
-        return 0.0;
-    }
-    (c.mid_price() / c.strike) * (365.0 / c.dte as f64) * 100.0
-}
-
-fn ann_roc_cc(c: &OptionsContract) -> f64 {
-    if c.underlying_price == 0.0 || c.dte == 0 {
-        return 0.0;
-    }
-    (c.mid_price() / c.underlying_price) * (365.0 / c.dte as f64) * 100.0
-}
-
-fn min_premium_floor(strike: f64, min_abs: f64, min_pct: f64) -> f64 {
-    let pct_floor = strike * min_pct;
-    min_abs.max(pct_floor)
-}
-
-/// Pick the single best contract from a filtered candidate list.
-/// "Best" = highest annualised ROC (most premium per dollar of risk).
-fn best_contract<'a>(
-    candidates: Vec<&'a OptionsContract>,
-    is_csp: bool,
-) -> Option<&'a OptionsContract> {
-    candidates.into_iter().max_by(|a, b| {
-        let roc_a = if is_csp {
-            ann_roc_csp(a)
-        } else {
-            ann_roc_cc(a)
-        };
-        let roc_b = if is_csp {
-            ann_roc_csp(b)
-        } else {
-            ann_roc_cc(b)
-        };
-        roc_a
-            .partial_cmp(&roc_b)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    })
 }
 
 // ── System prompt ─────────────────────────────────────────────────────────────
@@ -98,289 +54,121 @@ fn format_inventory_section(inventory: &Inventory) -> String {
     section
 }
 
-fn format_cash_section(available_cash: f64) -> String {
-    if available_cash.is_finite() {
-        format!(
-            "- **Total shared capital (cash pool for CSPs):** ${:.2}\n- 1 option contract = 100 shares.\n- Margin per CSP contract = strike x 100.\n- Total CSP collateral = sum(contracts x strike x 100) and must not exceed cash.\n- Contracts must be whole numbers.",
-            available_cash
-        )
-    } else {
-        "- **Available cash:** unlimited (paper trading)\n- 1 option contract = 100 shares.\n- Contracts must be whole numbers.".to_string()
+fn format_cc_table(recommendations: &[&WheelRecommendation]) -> String {
+    if recommendations.is_empty() {
+        return "No executable trades found.".to_string();
     }
+
+    let mut table = String::new();
+    table.push_str("| # | Ticker | Strike | Expiry | DTE | Contracts | Mid/share | Ann.ROC | OI | Quality |\n");
+    table.push_str("|---|--------|--------|--------|-----|-----------|-----------|---------|------|--------|\n");
+
+    for (i, rec) in recommendations.iter().enumerate() {
+        table.push_str(&format!(
+            "| {} | {} | ${:.2} | {} | {} | {} | ${:.2} | {:.1}% | {} | {:.0} |\n",
+            i + 1,
+            rec.ticker,
+            rec.contract.strike,
+            rec.contract.expiration,
+            rec.contract.dte,
+            rec.contracts_allocated,
+            rec.contract.mid_price(),
+            rec.annualised_roc,
+            rec.contract.open_interest,
+            rec.quality_score,
+        ));
+    }
+    table
+}
+
+fn format_csp_table(recommendations: &[&WheelRecommendation]) -> String {
+    if recommendations.is_empty() {
+        return "No executable trades found.".to_string();
+    }
+
+    let mut table = String::new();
+    table.push_str("| # | Ticker | Strike | Expiry | DTE | Contracts | Mid/share | Ann.ROC | OI | Collateral | Quality |\n");
+    table.push_str("|---|--------|--------|--------|-----|-----------|-----------|---------|------|------------|--------|\n");
+
+    for (i, rec) in recommendations.iter().enumerate() {
+        let collateral = rec.contract.strike * 100.0 * rec.contracts_allocated as f64;
+        table.push_str(&format!(
+            "| {} | {} | ${:.2} | {} | {} | {} | ${:.2} | {:.1}% | {} | ${:.0} | {:.0} |\n",
+            i + 1,
+            rec.ticker,
+            rec.contract.strike,
+            rec.contract.expiration,
+            rec.contract.dte,
+            rec.contracts_allocated,
+            rec.contract.mid_price(),
+            rec.annualised_roc,
+            rec.contract.open_interest,
+            collateral,
+            rec.quality_score,
+        ));
+    }
+    table
 }
 
 fn build_user_prompt(
+    recommendations: &[WheelRecommendation],
     inventory: &Inventory,
-    chains: &[OptionsChain],
     available_cash: f64,
-    min_premium_abs: f64,
-    min_premium_pct: f64,
 ) -> String {
-    let mut options_blocks = String::new();
-    let mut csp_candidates: Vec<(String, OptionsContract, f64, f64)> = Vec::new();
-
-    for chain in chains {
-        let ticker = &chain.ticker;
-        let spot = chain.underlying_price;
-        let shares_held: u32 = inventory
-            .holdings
-            .iter()
-            .find(|h| h.ticker.to_uppercase() == ticker.to_uppercase())
-            .map(|h| h.shares)
-            .unwrap_or(0);
-
-        options_blocks.push_str(&format!("### {} — Spot ${:.2}", ticker, spot));
-        if shares_held >= 100 {
-            options_blocks.push_str(&format!(
-                " — {} shares held → ✅ SELL CALLS (CC, {} contracts)",
-                shares_held,
-                shares_held / 100
-            ));
-        } else if shares_held > 0 {
-            options_blocks.push_str(&format!(
-                " — {} shares held → ⛔ NO TRADES (partial lot, skip)",
-                shares_held
-            ));
-        } else {
-            options_blocks.push_str(
-                " — 0 shares held → ✅ SELL PUTS (CSP). Do NOT sell calls on this ticker.",
-            );
-        }
-        options_blocks.push('\n');
-
-        // CSP candidates — only for tickers with zero shares held
-        if shares_held == 0 {
-            use crate::models::OptionType;
-            let csp_raw: Vec<&OptionsContract> = chain
-                .contracts
-                .iter()
-                .filter(|c| c.option_type == OptionType::Put)
-                .collect();
-
-            if csp_raw.is_empty() {
-                options_blocks.push_str(&format!(
-                    "  ⛔ NO VALID CONTRACTS — omit {} from trades entirely.\n\n",
-                    ticker
-                ));
-            } else {
-                for contract in csp_raw {
-                    let ann_roc = ann_roc_csp(contract);
-                    let margin_per = contract.strike * 100.0;
-                    let min_premium = min_premium_floor(
-                        contract.strike,
-                        min_premium_abs,
-                        min_premium_pct,
-                    );
-                    options_blocks.push_str(&format!(
-                        "  CSP candidate: ticker={} | strike=${:.2} | expiry={} | DTE={} | mid=${:.2}/share | min=${:.2}/share | delta={:.2} | IV={:.0}% | ann.ROC={:.0}% | margin/contract=${:.0}\n",
-                        ticker,
-                        contract.strike,
-                        contract.expiration,
-                        contract.dte,
-                        contract.mid_price(),
-                        min_premium,
-                        contract.delta,
-                        contract.implied_volatility * 100.0,
-                        ann_roc,
-                        margin_per,
-                    ));
-                    csp_candidates.push((ticker.clone(), contract.clone(), ann_roc, margin_per));
-                }
-                options_blocks.push('\n');
-            }
-        }
-
-        // CC candidates
-        if shares_held >= 100 {
-            use crate::models::OptionType;
-            let cc_raw: Vec<&OptionsContract> = chain
-                .contracts
-                .iter()
-                .filter(|c| c.option_type == OptionType::Call)
-                .collect();
-
-            let max_cc = shares_held / 100;
-            if cc_raw.is_empty() {
-                options_blocks.push_str(&format!(
-                    "  ⛔ NO VALID CALL CONTRACTS — omit {} CC from trades.\n\n",
-                    ticker
-                ));
-            } else {
-                for contract in cc_raw {
-                    let ann_roc = ann_roc_cc(contract);
-                    let min_premium = min_premium_floor(
-                        contract.strike,
-                        min_premium_abs,
-                        min_premium_pct,
-                    );
-                    options_blocks.push_str(&format!(
-                        "  CC candidate: ticker={} | strike=${:.2} | expiry={} | DTE={} | mid=${:.2}/share | min=${:.2}/share | delta={:.2} | IV={:.0}% | ann.ROC={:.0}% | shares={} | max_contracts={}\n",
-                        ticker,
-                        contract.strike,
-                        contract.expiration,
-                        contract.dte,
-                        contract.mid_price(),
-                        min_premium,
-                        contract.delta,
-                        contract.implied_volatility * 100.0,
-                        ann_roc,
-                        shares_held,
-                        max_cc,
-                    ));
-                }
-                options_blocks.push('\n');
-            }
-        }
-    }
-
-    let csp_allocation_guidance = if available_cash.is_finite() && !csp_candidates.is_empty() {
-        let mut ranked = csp_candidates.clone();
-        ranked.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
-        let mut guidance = String::new();
-        guidance.push_str("- Allocate cash across the highest-return CSPs when it improves total premium and reduces risk.\n");
-        guidance.push_str("- Top CSP candidates (ranked by ann.ROC):\n");
-        for (i, (ticker, contract, roc, margin_per)) in ranked.iter().take(5).enumerate() {
-            guidance.push_str(&format!(
-                "  - {}. {} strike=${:.2} expiry={} DTE={} ann.ROC={:.0}% margin/contract=${:.0}\n",
-                i + 1,
-                ticker,
-                contract.strike,
-                contract.expiration,
-                contract.dte,
-                roc,
-                margin_per
-            ));
-        }
-        guidance.push_str("- Use multiple legs if it increases total premium for the same cash budget.\n");
-        guidance.push_str("- Prefer shorter DTE only if ROC and total premium improve.\n");
-        guidance.push_str(
-            "- Use all or nearly all cash; avoid leaving more than 5% idle unless no valid contracts remain.",
-        );
-        guidance
-    } else {
-        "- No CSP candidates available from the provided input data.".to_string()
-    };
-
     let mut user_prompt = include_str!("user.md").to_string();
     user_prompt = user_prompt.replace("{{inventory_section}}", &format_inventory_section(inventory));
-    user_prompt = user_prompt.replace("{{cash_section}}", &format_cash_section(available_cash));
-    user_prompt = user_prompt.replace("{{min_premium_abs}}", &format!("${:.2}", min_premium_abs));
-    user_prompt = user_prompt.replace("{{min_premium_pct}}", &format!("{:.2}", min_premium_pct * 100.0));
-    user_prompt = user_prompt.replace("{{options_blocks}}", &options_blocks);
-    user_prompt.replace("{{csp_allocation_guidance}}", &csp_allocation_guidance)
+
+    let cash_str = if available_cash.is_finite() {
+        format!("${:.2}", available_cash)
+    } else {
+        "unlimited (paper trading)".to_string()
+    };
+    user_prompt = user_prompt.replace("{{available_cash}}", &cash_str);
+
+    // Split recommendations into CC and CSP groups
+    let cc_recs: Vec<&WheelRecommendation> = recommendations
+        .iter()
+        .filter(|r| r.leg == WheelLeg::CoveredCall)
+        .collect();
+    let csp_recs: Vec<&WheelRecommendation> = recommendations
+        .iter()
+        .filter(|r| r.leg == WheelLeg::CashSecuredPut)
+        .collect();
+
+    let cc_section = if cc_recs.is_empty() {
+        "## Covered Calls (CC)\n\nNo CC trades — no shares held.".to_string()
+    } else {
+        let table = format_cc_table(&cc_recs);
+        format!(
+            "## Covered Calls (CC) — {} trades\n\nUse existing shares. Rank these independently from CSPs.\n\n{}",
+            cc_recs.len(),
+            table
+        )
+    };
+
+    let csp_section = if csp_recs.is_empty() {
+        "## Cash-Secured Puts (CSP)\n\nNo CSP trades — insufficient cash or all tickers have full positions.".to_string()
+    } else {
+        let table = format_csp_table(&csp_recs);
+        format!(
+            "## Cash-Secured Puts (CSP) — {} trades\n\nUse available cash. Rank these independently from CCs.\n\n{}",
+            csp_recs.len(),
+            table
+        )
+    };
+
+    user_prompt = user_prompt.replace("{{cc_section}}", &cc_section);
+    user_prompt = user_prompt.replace("{{csp_section}}", &csp_section);
+
+    user_prompt
 }
 
-// ── Valid strikes extractor ───────────────────────────────────────────────────
+// ── Public assembler ──────────────────────────────────────────────────────────
 
-/// Returns the pre-selected best strike for each ticker/type, matching exactly
-/// what the LLM prompt shows on the "→ Use in JSON: strike=" line.
-/// Frontend uses this for exact-match validation — the LLM must output this value.
-pub fn build_valid_strikes(
+pub fn build_ranking_prompt(
+    recommendations: &[WheelRecommendation],
     inventory: &Inventory,
-    chains: &[OptionsChain],
-    min_premium_abs: f64,
-    min_premium_pct: f64,
-) -> HashMap<String, HashMap<String, Vec<f64>>> {
-    use crate::models::OptionType;
-    let mut out: HashMap<String, HashMap<String, Vec<f64>>> = HashMap::new();
-
-    for chain in chains {
-        let ticker = chain.ticker.to_uppercase();
-        let spot = chain.underlying_price;
-        let shares_held: u32 = inventory
-            .holdings
-            .iter()
-            .find(|h| h.ticker.to_uppercase() == ticker)
-            .map(|h| h.shares)
-            .unwrap_or(0);
-
-        let entry = out.entry(ticker).or_default();
-
-        if shares_held == 0 {
-            let csp_raw: Vec<&OptionsContract> = chain
-                .contracts
-                .iter()
-                .filter(|c| {
-                    let min_premium = min_premium_floor(c.strike, min_premium_abs, min_premium_pct);
-                    c.option_type == OptionType::Put
-                        && c.strike > 0.0
-                        && c.strike < spot
-                        && c.dte >= 7
-                        && c.dte <= 60
-                        && c.delta.abs() >= 0.08
-                        && c.delta.abs() <= 0.55
-                        && c.open_interest >= 5
-                        && c.mid_price() >= min_premium
-                        && c.bid > 0.0
-                        && c.ask > 0.0
-                })
-                .collect();
-            let mut strikes: Vec<f64> = if !csp_raw.is_empty() {
-                csp_raw.iter().map(|c| c.strike).collect()
-            } else {
-                // Fallback to all put strikes so UI validation still blocks hallucinations.
-                chain
-                    .contracts
-                    .iter()
-                    .filter(|c| c.option_type == OptionType::Put && c.strike > 0.0)
-                    .map(|c| c.strike)
-                    .collect()
-            };
-            if !strikes.is_empty() {
-                strikes.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-                strikes.dedup_by(|a, b| (*a - *b).abs() < 1e-6);
-                entry.insert("CSP".to_string(), strikes);
-            }
-        }
-
-        if shares_held >= 100 {
-            let cc_raw: Vec<&OptionsContract> = chain
-                .contracts
-                .iter()
-                .filter(|c| {
-                    let min_premium = min_premium_floor(c.strike, min_premium_abs, min_premium_pct);
-                    c.option_type == OptionType::Call
-                        && c.strike > spot
-                        && c.strike > 0.0
-                        && c.dte >= 7
-                        && c.dte <= 60
-                        && c.delta.abs() >= 0.08
-                        && c.delta.abs() <= 0.55
-                        && c.open_interest >= 5
-                        && c.mid_price() >= min_premium
-                        && c.bid > 0.0
-                        && c.ask > 0.0
-                })
-                .collect();
-            let mut strikes: Vec<f64> = if !cc_raw.is_empty() {
-                cc_raw.iter().map(|c| c.strike).collect()
-            } else {
-                chain
-                    .contracts
-                    .iter()
-                    .filter(|c| c.option_type == OptionType::Call && c.strike > 0.0)
-                    .map(|c| c.strike)
-                    .collect()
-            };
-            if !strikes.is_empty() {
-                strikes.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-                strikes.dedup_by(|a, b| (*a - *b).abs() < 1e-6);
-                entry.insert("CC".to_string(), strikes);
-            }
-        }
-    }
-
-    out
-}
-
-// ── Assembler ─────────────────────────────────────────────────────────────────
-
-pub fn build_llm_prompt(
-    inventory: &Inventory,
-    chains: &[OptionsChain],
     available_cash: f64,
-    min_premium_abs: f64,
-    min_premium_pct: f64,
 ) -> LlmPrompt {
     LlmPrompt {
         messages: vec![
@@ -390,13 +178,7 @@ pub fn build_llm_prompt(
             },
             ChatMessage {
                 role: "user".to_string(),
-                content: build_user_prompt(
-                    inventory,
-                    chains,
-                    available_cash,
-                    min_premium_abs,
-                    min_premium_pct,
-                ),
+                content: build_user_prompt(recommendations, inventory, available_cash),
             },
         ],
         temperature: 0.3,

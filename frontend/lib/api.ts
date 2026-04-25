@@ -5,6 +5,9 @@ import type {
   StockMarketData,
   RecommendationRequest,
   RecommendationResponse,
+  EarningsCalendar,
+  EarningsResult,
+  AnalystTrend,
 } from "./types";
 
 // Use relative paths - Next.js will proxy to backend via rewrites
@@ -83,4 +86,35 @@ export async function getRecommendations(
     method: "POST",
     body: JSON.stringify(req),
   });
+}
+
+// ── Earnings API ─────────────────────────────────────────────────────────────
+
+export async function getEarningsCalendar(
+  tickers: string[],
+): Promise<Record<string, EarningsCalendar[]>> {
+  const params = tickers.join(",");
+  return apiFetch<Record<string, EarningsCalendar[]>>(
+    `/api/earnings/calendar?tickers=${encodeURIComponent(params)}`,
+  );
+}
+
+export async function getEarningsHistory(
+  tickers: string[],
+): Promise<Record<string, EarningsResult[]>> {
+  const params = tickers.join(",");
+  return apiFetch<Record<string, EarningsResult[]>>(
+    `/api/earnings/history?tickers=${encodeURIComponent(params)}`,
+  );
+}
+
+// ── Analyst Trends API ───────────────────────────────────────────────────────
+
+export async function getAnalystTrends(
+  tickers: string[],
+): Promise<Record<string, AnalystTrend[]>> {
+  const params = tickers.join(",");
+  return apiFetch<Record<string, AnalystTrend[]>>(
+    `/api/analyst-trends?tickers=${encodeURIComponent(params)}`,
+  );
 }
