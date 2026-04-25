@@ -164,17 +164,27 @@ function TradesTable({ ccTrades, cspTrades, model, provider, ccRanked, cspRanked
 
     if (!isCSP) {
       for (const group of groups) {
-        const engineByTicker = new Map<number, number>();
-        group.trades.forEach((t, i) => engineByTicker.set(t.engineRank, i));
+        // Sort by global engineRank to determine original engine order within this ticker
+        const engineOrdered = [...group.trades].sort((a, b) => a.engineRank - b.engineRank);
+        const engineRankWithinTicker = new Map<WheelRecommendation, number>();
+        engineOrdered.forEach((t, i) => engineRankWithinTicker.set(t.rec, i + 1));
+
+        // LLM order (group.trades order) → num; engine order within ticker → engineRank
         group.trades.forEach((t, i) => {
+          t.engineRank = engineRankWithinTicker.get(t.rec) ?? (i + 1);
           t.num = i + 1;
-          t.engineRank = (engineByTicker.get(t.engineRank) ?? i) + 1;
         });
       }
     }
 
     return groups;
   }, [trades, isCSP]);
+
+  // For covered calls, only consider a reorder "active" if rank changed within a ticker.
+  const hasVisibleReorder = React.useMemo(() => {
+    if (isCSP) return isRanked;
+    return tickerGroups.some((group) => group.trades.some((t) => t.num !== t.engineRank));
+  }, [isCSP, isRanked, tickerGroups]);
 
   return (
     <div className="rounded border border-[#30363d] bg-[#161b22] overflow-hidden">
@@ -199,7 +209,7 @@ function TradesTable({ ccTrades, cspTrades, model, provider, ccRanked, cspRanked
             </button>
           ))}
         </div>
-        {isRanked && (
+        {hasVisibleReorder && (
           <span className="text-[10px] font-medium bg-[#58a6ff15] text-[#58a6ff] border border-[#58a6ff30] px-2 py-0.5 rounded">
             LLM Reordered
           </span>
@@ -372,7 +382,7 @@ function TradesTable({ ccTrades, cspTrades, model, provider, ccRanked, cspRanked
                           {isOpen ? "▾" : "▸"}
                         </td>
                         <td className="px-2 py-2 text-[#8b949e] font-medium">
-                          {t.num === t.engineRank || !isRanked ? (
+                          {t.num === t.engineRank || !hasVisibleReorder ? (
                             t.num
                           ) : (
                             <span className="inline-flex items-center gap-1">
@@ -731,14 +741,6 @@ export default function LlmAnalysis({ prompt, recommendations, ollamaModels, oll
         )}
 
         {/* Loading state */}
-        {loading && (
-          <div className="flex items-center gap-2 text-[#8b949e] text-xs py-3">
-            <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-            Waiting for model response…
-          </div>
-        )}
 
         {/* Parse failure — show raw response */}
         {rawAnalysis && !llmResponse && !loading && (
