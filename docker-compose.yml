@@ -1,0 +1,33 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: wheel-backend
+    environment:
+      BIND_ADDR: 0.0.0.0:8080
+      DATA_SOURCE: ${DATA_SOURCE:-yahoo}
+      MOCK_DATA_DIR: /data/mock
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data/mock:/data/mock:ro
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        INTERNAL_API_URL: ${INTERNAL_API_URL:-http://backend:8080}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://backend:8080}
+    container_name: wheel-frontend
+    environment:
+      NODE_ENV: production
+      INTERNAL_API_URL: ${INTERNAL_API_URL:-http://backend:8080}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://backend:8080}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
