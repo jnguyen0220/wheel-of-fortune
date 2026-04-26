@@ -547,7 +547,7 @@ async fn fetch_yahoo_options_chain_with_session(
     let underlying = front_result.quote.regular_market_price;
     let all_expirations = front_result.expiration_dates;
 
-    // Filter expirations to 25-35 DTE window
+    // Fetch all future expirations — the strategy engine filters by DTE range
     let today = Local::now().naive_local().date();
     let target_ts: Vec<i64> = all_expirations
         .into_iter()
@@ -556,7 +556,7 @@ async fn fetch_yahoo_options_chain_with_session(
             if let Some(dt) = DateTime::<Utc>::from_timestamp(ts, 0) {
                 let exp_date = dt.naive_utc().date();
                 let dte = (exp_date - today).num_days();
-                dte >= 25 && dte <= 35
+                dte >= 1 && dte <= 90
             } else {
                 false
             }
@@ -564,7 +564,7 @@ async fn fetch_yahoo_options_chain_with_session(
         .collect();
 
     if target_ts.is_empty() {
-        anyhow::bail!("No expirations in 25-35 DTE window for {ticker_upper}");
+        anyhow::bail!("No future expirations found for {ticker_upper}");
     }
 
     let mut all_contracts: Vec<OptionsContract> = Vec::new();

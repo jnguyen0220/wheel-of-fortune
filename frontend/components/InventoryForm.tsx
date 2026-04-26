@@ -9,6 +9,11 @@ interface Props {
   onChanged: () => void;
   availableCash?: number;
   onCashChanged?: (amount: number) => void;
+  onGenerate?: () => void;
+  generating?: boolean;
+  dteMin?: number;
+  dteMax?: number;
+  onDteRangeChanged?: (min: number, max: number) => void;
 }
 
 interface FormFields {
@@ -27,6 +32,11 @@ export default function InventoryForm({
   holdings,
   onChanged,
   onCashChanged,
+  onGenerate,
+  generating = false,
+  dteMin = 30,
+  dteMax = 45,
+  onDteRangeChanged,
 }: Props) {
   const [form, setForm] = useState<FormFields>(EMPTY_FORM);
   const [cashInput, setCashInput] = useState<string>("");
@@ -206,52 +216,106 @@ export default function InventoryForm({
   return (
     <section className="bg-[#161b22] rounded border border-[#30363d] overflow-hidden">
       <div className="p-5">
-        {/* Available Cash + Watchlist */}
-        <div className="flex items-start gap-4 mb-5 p-4 rounded border border-[#30363d] bg-[#0d1117]">
-          {/* Icon block */}
-          <div className="flex items-center justify-center w-9 h-9 rounded bg-[#1c2128] text-[#3fb950] shrink-0">
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
-            </svg>
+        {/* Available Cash + DTE range side by side */}
+        <div className="flex flex-wrap gap-3 mb-5">
+          {/* Available Cash — half width */}
+          <div className="flex items-start gap-3 flex-1 min-w-[200px] p-3 rounded border border-[#30363d] bg-[#0d1117]">
+            {/* Icon block */}
+            <div className="flex items-center justify-center w-8 h-8 rounded bg-[#1c2128] text-[#3fb950] shrink-0">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
+              </svg>
+            </div>
+            <div className="flex flex-col min-w-0">
+              <p className="text-[10px] font-semibold text-[#8b949e] uppercase tracking-widest mb-1.5">
+                Available Cash for CSP
+              </p>
+              {cashEditing ? (
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8b949e] text-sm font-bold select-none">$</span>
+                  <input
+                    ref={cashRef}
+                    type="text"
+                    inputMode="numeric"
+                    value={formatLive(cashInput)}
+                    onChange={handleCashChange}
+                    onBlur={() => setCashEditing(false)}
+                    onKeyDown={e => e.key === "Enter" && setCashEditing(false)}
+                    autoFocus
+                    placeholder="0"
+                    className="w-36 border border-[#30363d] rounded pl-7 pr-3 py-1.5 text-sm font-bold tabular-nums text-[#c9d1d9] bg-[#0d1117] focus:outline-none focus:ring-1 focus:ring-[#58a6ff] transition"
+                  />
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => { setCashEditing(true); setTimeout(() => cashRef.current?.select(), 0); }}
+                  className="group flex items-center gap-2 text-left"
+                >
+                  <span className="text-xl font-bold tabular-nums text-[#3fb950] leading-none">
+                    ${cashInput ? parseInt(cashInput, 10).toLocaleString() : "0"}
+                  </span>
+                  <svg className="w-3.5 h-3.5 text-[#30363d] group-hover:text-[#8b949e] transition shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487a2.1 2.1 0 112.97 2.97L8.5 18.81l-4 1 1-4 11.362-11.323z" />
+                  </svg>
+                </button>
+              )}
+            </div>
           </div>
 
-          {/* Label + editable amount */}
-          <div className="flex flex-col min-w-0">
-            <p className="text-[10px] font-semibold text-[#8b949e] uppercase tracking-widest mb-1.5">
-              Available Cash for CSP
-            </p>
-            {cashEditing ? (
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8b949e] text-sm font-bold select-none">$</span>
+          {/* DTE range + Recommendations — half width */}
+          <div className="flex flex-col justify-between flex-1 min-w-[200px] p-3 rounded border border-[#30363d] bg-[#0d1117]">
+            <div>
+              <label className="block text-[10px] font-semibold text-[#8b949e] uppercase tracking-widest mb-2">
+                DTE Range: <span className="text-[#c9d1d9]">{dteMin}d</span>
+                <span className="text-[#484f58]"> – </span>
+                <span className="text-[#c9d1d9]">{dteMax}d</span>
+              </label>
+              {/* Dual-range slider */}
+              <div className="relative h-5 flex items-center">
+                {/* Track background */}
+                <div className="absolute inset-x-0 h-1.5 rounded-full bg-[#30363d]" />
+                {/* Filled range */}
+                <div
+                  className="absolute h-1.5 rounded-full bg-[#58a6ff]"
+                  style={{
+                    left: `${((dteMin - 1) / 59) * 100}%`,
+                    right: `${100 - ((dteMax - 1) / 59) * 100}%`,
+                  }}
+                />
+                {/* Min thumb */}
                 <input
-                  ref={cashRef}
-                  type="text"
-                  inputMode="numeric"
-                  value={formatLive(cashInput)}
-                  onChange={handleCashChange}
-                  onBlur={() => setCashEditing(false)}
-                  onKeyDown={e => e.key === "Enter" && setCashEditing(false)}
-                  autoFocus
-                  placeholder="0"
-                  className="w-40 border border-[#30363d] rounded pl-7 pr-3 py-1.5 text-sm font-bold tabular-nums text-[#c9d1d9] bg-[#0d1117] focus:outline-none focus:ring-1 focus:ring-[#58a6ff] transition"
+                  type="range"
+                  min={1}
+                  max={59}
+                  step={1}
+                  value={dteMin}
+                  onChange={(e) => {
+                    const v = Math.min(Number(e.target.value), dteMax - 1);
+                    onDteRangeChanged?.(v, dteMax);
+                  }}
+                  className="absolute inset-x-0 w-full appearance-none bg-transparent pointer-events-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[#58a6ff] [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-[#58a6ff] [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer"
+                />
+                {/* Max thumb */}
+                <input
+                  type="range"
+                  min={2}
+                  max={60}
+                  step={1}
+                  value={dteMax}
+                  onChange={(e) => {
+                    const v = Math.max(Number(e.target.value), dteMin + 1);
+                    onDteRangeChanged?.(dteMin, v);
+                  }}
+                  className="absolute inset-x-0 w-full appearance-none bg-transparent pointer-events-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[#58a6ff] [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-[#58a6ff] [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer"
                 />
               </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => { setCashEditing(true); setTimeout(() => cashRef.current?.select(), 0); }}
-                className="group flex items-center gap-2 text-left"
-              >
-                <span className="text-xl font-bold tabular-nums text-[#3fb950] leading-none">
-                  ${cashInput ? parseInt(cashInput, 10).toLocaleString() : "0"}
-                </span>
-                <svg className="w-3.5 h-3.5 text-[#30363d] group-hover:text-[#8b949e] transition shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487a2.1 2.1 0 112.97 2.97L8.5 18.81l-4 1 1-4 11.362-11.323z" />
-                </svg>
-              </button>
-            )}
+              <div className="flex justify-between mt-1">
+                <span className="text-[10px] text-[#484f58]">1d</span>
+                <span className="text-[10px] text-[#484f58]">60d</span>
+              </div>
+            </div>
           </div>
-
         </div>
 
         {/* Add form */}
@@ -333,7 +397,7 @@ export default function InventoryForm({
             <button
               type="submit"
               disabled={saving}
-              className="shrink-0 bg-[#238636] hover:bg-[#2ea043] disabled:opacity-40 text-white font-medium px-4 py-2 rounded transition text-xs flex items-center gap-1.5"
+              className="shrink-0 bg-[#21262d] hover:bg-[#30363d] disabled:opacity-40 text-[#c9d1d9] font-medium px-4 py-2 rounded transition text-xs flex items-center gap-1.5 border border-[#30363d]"
             >
               {saving ? (
                 <>
@@ -348,6 +412,28 @@ export default function InventoryForm({
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
                   </svg>
                   Add
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={onGenerate}
+              disabled={generating || holdings.length === 0}
+              className="shrink-0 bg-[#238636] hover:bg-[#2ea043] disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium px-4 py-2 rounded transition text-xs flex items-center gap-1.5"
+            >
+              {generating ? (
+                <>
+                  <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+                  </svg>
+                  Loading…
+                </>
+              ) : (
+                <>
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+                  </svg>
+                  Recommendations
                 </>
               )}
             </button>

@@ -114,6 +114,8 @@ fn build_user_prompt(
     recommendations: &[WheelRecommendation],
     inventory: &Inventory,
     available_cash: f64,
+    min_dte: u32,
+    max_dte: u32,
 ) -> String {
     let mut user_prompt = include_str!("user.md").to_string();
     user_prompt = user_prompt.replace("{{inventory_section}}", &format_inventory_section(inventory));
@@ -124,6 +126,8 @@ fn build_user_prompt(
         "unlimited (paper trading)".to_string()
     };
     user_prompt = user_prompt.replace("{{available_cash}}", &cash_str);
+    user_prompt = user_prompt.replace("{{dte_min}}", &min_dte.to_string());
+    user_prompt = user_prompt.replace("{{dte_max}}", &max_dte.to_string());
 
     // Split recommendations into CC and CSP groups
     let cc_recs: Vec<&WheelRecommendation> = recommendations
@@ -169,6 +173,8 @@ pub fn build_ranking_prompt(
     recommendations: &[WheelRecommendation],
     inventory: &Inventory,
     available_cash: f64,
+    min_dte: u32,
+    max_dte: u32,
 ) -> LlmPrompt {
     LlmPrompt {
         messages: vec![
@@ -178,7 +184,7 @@ pub fn build_ranking_prompt(
             },
             ChatMessage {
                 role: "user".to_string(),
-                content: build_user_prompt(recommendations, inventory, available_cash),
+                content: build_user_prompt(recommendations, inventory, available_cash, min_dte, max_dte),
             },
         ],
         temperature: 0.3,

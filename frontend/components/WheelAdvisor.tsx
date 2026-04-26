@@ -30,6 +30,8 @@ export default function WheelAdvisor() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tickersWithoutOptions, setTickersWithoutOptions] = useState<string[]>([]);
+  const [selectedDteMax, setSelectedDteMax] = useState<number>(45);
+  const [selectedDteMin, setSelectedDteMin] = useState<number>(30);
   const [activeTab, setActiveTab] = useState<"inventory" | "ai">(
     "inventory",
   );
@@ -77,7 +79,9 @@ export default function WheelAdvisor() {
         getRecommendations({
           inventory: { holdings },
           tickers,
-          available_cash: availableCash,
+          available_cash: availableCash > 0 ? availableCash : undefined,
+          dte_min: selectedDteMin,
+          dte_max: selectedDteMax,
         }),
         getEarningsCalendar(tickers).catch(() => ({} as Record<string, EarningsCalendar[]>)),
         getEarningsHistory(tickers).catch(() => ({} as Record<string, EarningsResult[]>)),
@@ -117,7 +121,7 @@ export default function WheelAdvisor() {
       </header>
 
       <div className="max-w-7xl mx-auto px-6 pt-4">
-        {/* Tab nav + run button in one row */}
+        {/* Tab nav */}
         <div className="flex items-center gap-3 mb-4">
           <div className="flex bg-[#161b22] border border-[#30363d] rounded p-0.5">
             {(
@@ -140,47 +144,25 @@ export default function WheelAdvisor() {
               </button>
             ))}
           </div>
-
-          <div className="ml-auto flex items-center gap-3">
-            {holdings.length === 0 && (
-              <p className="text-[#8b949e] text-xs">Add tickers first</p>
-            )}
-            <button
-              onClick={runRecommendations}
-              disabled={loading || holdings.length === 0}
-              className="bg-[#238636] hover:bg-[#2ea043] disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium px-5 py-1.5 rounded transition text-xs flex items-center gap-1.5"
-            >
-              {loading ? (
-                <>
-                  <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
-                  </svg>
-                  Generating…
-                </>
-              ) : (
-                <>
-                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
-                  </svg>
-                  Generate
-                </>
-              )}
-            </button>
-          </div>
-
-          {error && (
-            <p className="text-[#f85149] text-xs font-medium bg-[#f8514915] px-3 py-1.5 rounded border border-[#f8514930]">{error}</p>
-          )}
         </div>
 
         {/* Tab content */}
         <div className="pb-12">
           <div className={activeTab === "inventory" ? "" : "hidden"}>
+            {error && (
+              <p className="mb-4 text-[#f85149] text-xs font-medium bg-[#f8514915] px-3 py-1.5 rounded border border-[#f8514930]">{error}</p>
+            )}
+
             <InventoryForm
               holdings={holdings}
               onChanged={refreshInventory}
               availableCash={availableCash}
               onCashChanged={setAvailableCash}
+              onGenerate={runRecommendations}
+              generating={loading}
+              dteMin={selectedDteMin}
+              dteMax={selectedDteMax}
+              onDteRangeChanged={(min, max) => { setSelectedDteMin(min); setSelectedDteMax(max); }}
             />
           </div>
 

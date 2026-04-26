@@ -32,6 +32,10 @@ pub struct RecommendationRequest {
     pub tickers: Vec<String>,
     /// Available cash for CSP recommendations (in dollars)
     pub available_cash: Option<f64>,
+    /// Minimum days-to-expiration filter applied to options contracts.
+    pub dte_min: Option<u32>,
+    /// Maximum days-to-expiration filter applied to options contracts.
+    pub dte_max: Option<u32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -181,16 +185,20 @@ async fn get_recommendations(
     }
 
     let available_cash = req.available_cash.unwrap_or(f64::INFINITY);
+    let min_dte = req.dte_min.unwrap_or(30).clamp(1, 59);
+    let max_dte = req.dte_max.unwrap_or(45).clamp(min_dte + 1, 60);
 
     // Run the wheel strategy engine to get pre-computed, validated trades.
     let recommendations = evaluate_wheel(
         &inventory.holdings,
         &chains,
         available_cash,
+        min_dte,
+        max_dte,
     );
 
     // Build an LLM prompt that asks the model to rank these pre-computed trades.
-    let llm_prompt = build_ranking_prompt(&recommendations, &inventory, available_cash);
+    let llm_prompt = build_ranking_prompt(&recommendations, &inventory, available_cash, min_dte, max_dte);
 
     Json(RecommendationResponse {
         market_data,

@@ -23,7 +23,6 @@ const MIN_ANNUALISED_ROC: f64 = 12.0; // percent
 
 /// Preferred DTE range for new positions.
 const MIN_DTE: u32 = 1;
-const MAX_DTE: u32 = 45;
 
 /// Target delta range for CSPs (absolute value).
 const CSP_DELTA_MIN: f64 = 0.20;
@@ -79,6 +78,8 @@ pub fn evaluate_wheel(
     inventory: &[StockHolding],
     chains: &[OptionsChain],
     available_cash: f64,
+    min_dte: u32,
+    max_dte: u32,
 ) -> Vec<WheelRecommendation> {
     let mut recommendations: Vec<WheelRecommendation> = Vec::new();
 
@@ -99,8 +100,8 @@ pub fn evaluate_wheel(
                 .iter()
                 .filter(|c| {
                     c.option_type == OptionType::Call
-                        && c.dte >= MIN_DTE
-                        && c.dte <= MAX_DTE
+                        && c.dte >= min_dte
+                        && c.dte <= max_dte
                         && c.delta.abs() >= CC_DELTA_MIN
                         && c.delta.abs() <= CC_DELTA_MAX
                         && c.open_interest >= MIN_OPEN_INTEREST
@@ -119,8 +120,8 @@ pub fn evaluate_wheel(
                     .iter()
                     .filter(|c| {
                         c.option_type == OptionType::Call
-                            && c.dte >= MIN_DTE
-                            && c.dte <= MAX_DTE
+                            && c.dte >= min_dte
+                            && c.dte <= max_dte
                             && c.delta.abs() >= 0.10
                             && c.delta.abs() <= 0.50
                             && c.open_interest >= 5
@@ -213,7 +214,7 @@ pub fn evaluate_wheel(
         let strict: Vec<OptionsContract> = chain.contracts.iter()
             .filter(|c| {
                 c.option_type == OptionType::Put
-                    && c.dte >= MIN_DTE && c.dte <= MAX_DTE
+                    && c.dte >= min_dte && c.dte <= max_dte
                     && c.delta.abs() >= CSP_DELTA_MIN && c.delta.abs() <= CSP_DELTA_MAX
                     && c.open_interest >= MIN_OPEN_INTEREST
                     && c.strike < chain.underlying_price
@@ -241,7 +242,7 @@ pub fn evaluate_wheel(
             let relaxed: Vec<OptionsContract> = chain.contracts.iter()
                 .filter(|c| {
                     c.option_type == OptionType::Put
-                        && c.dte >= MIN_DTE && c.dte <= MAX_DTE
+                        && c.dte >= min_dte && c.dte <= max_dte
                         && c.delta.abs() >= 0.10 && c.delta.abs() <= 0.50
                         && c.open_interest >= 5
                         && c.strike < chain.underlying_price

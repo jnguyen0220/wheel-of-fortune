@@ -89,6 +89,8 @@ export interface RecommendationRequest {
   inventory?: Inventory;
   tickers: string[];
   available_cash?: number;
+  dte_min?: number;
+  dte_max?: number;
 }
 
 // ── Earnings types ───────────────────────────────────────────────────────────

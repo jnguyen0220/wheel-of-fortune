@@ -1,0 +1,41 @@
+services:
+  backend:
+    image: ghcr.io/jnguyen0220/wheel-advisor-backend:sha-966bf24
+    container_name: wheel-backend
+    environment:
+      BIND_ADDR: 0.0.0.0:9000
+      DATA_SOURCE: ${DATA_SOURCE:-yahoo}
+      MOCK_DATA_DIR: /data/mock
+    ports:
+      - "9000:9000"
+    volumes:
+      - ./data/mock:/data/mock:ro
+    restart: unless-stopped
+
+  frontend:
+    image: ghcr.io/jnguyen0220/wheel-advisor-frontend:sha-966bf24
+    container_name: wheel-frontend
+    environment:
+      NODE_ENV: production
+      INTERNAL_API_URL: ${INTERNAL_API_URL:-http://backend:9000}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://backend:9000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    container_name: wheel-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs/domain.cert.pem:/etc/nginx/certs/domain.cert.pem:ro
+      - ./certs/public.key.pem:/etc/nginx/certs/public.key.pem:ro
+    depends_on:
+      - frontend
+      - backend
+    restart: unless-stopped

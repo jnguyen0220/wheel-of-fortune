@@ -9,8 +9,8 @@
 //! Documentation: https://www.marketdata.app/docs/api
 //!
 //! The response is a flat structure where each field is an array of values.
-//! Only expirations in the 25-35 DTE window are fetched and merged into a
-//! single [`OptionsChain`].
+//! All expirations up to 90 DTE are fetched. The strategy engine applies the
+//! user's configured DTE range filter. single [`OptionsChain`].
 //!
 //! # Configuration (environment variables)
 //! | Variable          | Description                                  |
@@ -123,7 +123,7 @@ impl WebApiAdapter {
         resp.expirations.context("No expirations in response")
     }
 
-    /// Fetch and filter expirations to the 25-35 DTE window.
+    /// Fetch all future expirations (up to 90 DTE). The strategy engine applies the user's DTE range filter.
     async fn fetch_target_expirations(&self, ticker: &str) -> Result<Vec<String>> {
         use chrono::{Local, NaiveDate};
 
@@ -135,7 +135,7 @@ impl WebApiAdapter {
             .filter_map(|exp_str| {
                 let exp_date = NaiveDate::parse_from_str(&exp_str, "%Y-%m-%d").ok()?;
                 let days_to_exp = (exp_date - today).num_days();
-                if (25..=35).contains(&days_to_exp) {
+                if days_to_exp >= 1 && days_to_exp <= 90 {
                     Some(exp_str)
                 } else {
                     None
@@ -334,13 +334,13 @@ impl OptionsDataProvider for WebApiAdapter {
         let target_expirations = self.fetch_target_expirations(&ticker_upper).await?;
 
         if target_expirations.is_empty() {
-            anyhow::bail!("No expirations found in 25-35 DTE window for ticker {}", ticker_upper);
+            anyhow::bail!("No future expirations found for ticker {}", ticker_upper);
         }
 
         debug!(
             ticker = %ticker_upper,
             target_count = %target_expirations.len(),
-            "Found target expirations in 25-35 DTE window"
+            "Found future expirations (up to 90 DTE)"
         );
 
         // Fetch options chains for the target expirations in parallel
