@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   AnalystTrend,
   EarningsCalendar,
   EarningsResult,
   LlmPrompt,
+  OptionsChain,
   StockHolding,
   WheelRecommendation,
 } from "@/lib/types";
@@ -14,14 +15,31 @@ import {
   getEarningsCalendar,
   getEarningsHistory,
   getInventory,
+  getOptionsChains,
   getRecommendations,
 } from "@/lib/api";
 import InventoryForm from "./InventoryForm";
 import LlmAnalysis from "./LlmAnalysis";
+import OptionsTab from "./OptionsTab";
 
 export default function WheelAdvisor() {
   const [holdings, setHoldings] = useState<StockHolding[]>([]);
   const [availableCash, setAvailableCash] = useState<number>(0);
+  const [cashInput, setCashInput] = useState<string>("");
+  const [cashEditing, setCashEditing] = useState(false);
+  const cashRef = useRef<HTMLInputElement>(null);
+
+  const formatLive = (v: string) => {
+    const digits = v.replace(/\D/g, "");
+    if (!digits) return "";
+    return parseInt(digits, 10).toLocaleString();
+  };
+
+  const handleCashChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value.replace(/\D/g, "");
+    setCashInput(raw);
+    setAvailableCash(raw ? parseInt(raw, 10) : 0);
+  };
   const [llmPrompt, setLlmPrompt] = useState<LlmPrompt | null>(null);
   const [recommendations, setRecommendations] = useState<WheelRecommendation[]>([]);
   const [earningsCalendar, setEarningsCalendar] = useState<Record<string, EarningsCalendar[]>>({});
@@ -30,9 +48,10 @@ export default function WheelAdvisor() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tickersWithoutOptions, setTickersWithoutOptions] = useState<string[]>([]);
-  const [selectedDteMax, setSelectedDteMax] = useState<number>(45);
-  const [selectedDteMin, setSelectedDteMin] = useState<number>(30);
-  const [activeTab, setActiveTab] = useState<"inventory" | "ai">(
+  const [optionsChains, setOptionsChains] = useState<OptionsChain[]>([]);
+  const [optionsLoaded, setOptionsLoaded] = useState(false);
+  const [optionsLoading, setOptionsLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<"inventory" | "options" | "ai">(
     "inventory",
   );
 
@@ -66,8 +85,30 @@ export default function WheelAdvisor() {
     return () => clearTimeout(timer);
   }, [refreshInventory]);
 
+  async function fetchOptionChains() {
+    const tickers = [...new Set(holdings.map((h) => h.ticker))].sort();
+    if (tickers.length === 0) {
+      setError("Add tickers first.");
+      return;
+    }
+    setOptionsLoading(true);
+    setError(null);
+    try {
+      const chains = await getOptionsChains(tickers);
+      setOptionsChains(chains);
+      setOptionsLoaded(true);
+      setActiveTab("options");
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to fetch option chains",
+      );
+    } finally {
+      setOptionsLoading(false);
+    }
+  }
+
   async function runRecommendations() {
-    const tickers = [...new Set(holdings.map((h) => h.ticker))];
+    const tickers = [...new Set(holdings.map((h) => h.ticker))].sort();
     if (tickers.length === 0) {
       setError("Add tickers first.");
       return;
@@ -80,8 +121,11 @@ export default function WheelAdvisor() {
           inventory: { holdings },
           tickers,
           available_cash: availableCash > 0 ? availableCash : undefined,
-          dte_min: selectedDteMin,
-          dte_max: selectedDteMax,
+          ...(() => {
+            const dtes = optionsChains.flatMap(c => c.contracts.map(ct => ct.dte));
+            if (dtes.length === 0) return {};
+            return { dte_min: Math.min(...dtes), dte_max: Math.max(...dtes) };
+          })(),
         }),
         getEarningsCalendar(tickers).catch(() => ({} as Record<string, EarningsCalendar[]>)),
         getEarningsHistory(tickers).catch(() => ({} as Record<string, EarningsResult[]>)),
@@ -127,13 +171,14 @@ export default function WheelAdvisor() {
             {(
               [
                 { key: "inventory", label: "Portfolio" },
+                { key: "options", label: "Options" },
                 { key: "ai", label: "Trade Desk" },
               ] as const
             ).map(({ key, label }) => (
               <button
                 key={key}
                 onClick={() => setActiveTab(key)}
-                disabled={key === "ai" && !llmPrompt}
+                disabled={(key === "options" && !optionsLoaded) || (key === "ai" && !llmPrompt)}
                 className={`px-4 py-1.5 text-xs font-medium rounded transition ${
                   activeTab === key
                     ? "bg-[#30363d] text-[#c9d1d9]"
@@ -156,13 +201,23 @@ export default function WheelAdvisor() {
             <InventoryForm
               holdings={holdings}
               onChanged={refreshInventory}
-              availableCash={availableCash}
-              onCashChanged={setAvailableCash}
-              onGenerate={runRecommendations}
-              generating={loading}
-              dteMin={selectedDteMin}
-              dteMax={selectedDteMax}
-              onDteRangeChanged={(min, max) => { setSelectedDteMin(min); setSelectedDteMax(max); }}
+              onGenerate={fetchOptionChains}
+              generating={optionsLoading}
+            />
+          </div>
+
+          <div className={activeTab === "options" ? "" : "hidden"}>
+            <OptionsTab
+              chains={optionsChains}
+              onRecommendations={runRecommendations}
+              recommendationsLoading={loading}
+              cashInput={cashInput}
+              cashEditing={cashEditing}
+              onCashEditStart={() => { setCashEditing(true); setTimeout(() => cashRef.current?.select(), 0); }}
+              onCashEditEnd={() => setCashEditing(false)}
+              onCashChange={handleCashChange}
+              formatCash={formatLive}
+              cashRef={cashRef}
             />
           </div>
 

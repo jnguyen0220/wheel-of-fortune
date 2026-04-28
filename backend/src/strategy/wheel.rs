@@ -21,9 +21,6 @@ use crate::models::{OptionsChain, OptionsContract, OptionType, StockHolding};
 /// Minimum annualised return on capital to surface a recommendation.
 const MIN_ANNUALISED_ROC: f64 = 12.0; // percent
 
-/// Preferred DTE range for new positions.
-const MIN_DTE: u32 = 1;
-
 /// Target delta range for CSPs (absolute value).
 const CSP_DELTA_MIN: f64 = 0.20;
 const CSP_DELTA_MAX: f64 = 0.35;

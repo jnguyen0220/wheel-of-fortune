@@ -42,6 +42,12 @@ export interface OptionsContract {
   underlying_price: number;
 }
 
+export interface OptionsChain {
+  ticker: string;
+  underlying_price: number;
+  contracts: OptionsContract[];
+}
+
 export interface StockMarketData {
   ticker: string;
   price: number;

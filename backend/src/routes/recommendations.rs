@@ -185,8 +185,8 @@ async fn get_recommendations(
     }
 
     let available_cash = req.available_cash.unwrap_or(f64::INFINITY);
-    let min_dte = req.dte_min.unwrap_or(30).clamp(1, 59);
-    let max_dte = req.dte_max.unwrap_or(45).clamp(min_dte + 1, 60);
+    let min_dte = req.dte_min.unwrap_or(0);
+    let max_dte = req.dte_max.unwrap_or(u32::MAX).max(min_dte + 1);
 
     // Run the wheel strategy engine to get pre-computed, validated trades.
     let recommendations = evaluate_wheel(

@@ -8,6 +8,7 @@ import type {
   EarningsCalendar,
   EarningsResult,
   AnalystTrend,
+  OptionsChain,
 } from "./types";
 
 // Use relative paths - Next.js will proxy to backend via rewrites
@@ -48,16 +49,6 @@ export async function addHolding(
 ): Promise<StockHolding> {
   return apiFetch<StockHolding>("/api/inventory", {
     method: "POST",
-    body: JSON.stringify(input),
-  });
-}
-
-export async function updateHolding(
-  id: string,
-  input: StockHoldingInput,
-): Promise<StockHolding> {
-  return apiFetch<StockHolding>(`/api/inventory/${id}`, {
-    method: "PUT",
     body: JSON.stringify(input),
   });
 }
@@ -116,5 +107,16 @@ export async function getAnalystTrends(
   const params = tickers.join(",");
   return apiFetch<Record<string, AnalystTrend[]>>(
     `/api/analyst-trends?tickers=${encodeURIComponent(params)}`,
+  );
+}
+
+// ── Options Chain API ────────────────────────────────────────────────────────
+
+export async function getOptionsChains(
+  tickers: string[],
+): Promise<OptionsChain[]> {
+  const params = tickers.join(",");
+  return apiFetch<OptionsChain[]>(
+    `/api/options?tickers=${encodeURIComponent(params)}`,
   );
 }
