@@ -1,4 +1,4 @@
-# Wheel Strategy — Reorder These Trades
+# Wheel Strategy — Analyze These Trades
 
 ## Portfolio
 
@@ -12,12 +12,16 @@
 
 Only contracts with **{{dte_min}}–{{dte_max}} days to expiration** were included by the engine.
 
+{{earnings_section}}
+
+{{analyst_section}}
+
 {{cc_section}}
 
 {{csp_section}}
 
 ## Task
 
-Reorder the CC trades and the CSP trades separately — best first.
-Do not add, remove, or change any trade. Every trade above must appear in your output.
+Analyze the trades above from a strategic perspective. Do not re-rank or modify them.
+Focus on assignment risk, concentration, earnings timing, wheel cycle advice, and key risks.
 Return only the JSON schema from the system prompt.

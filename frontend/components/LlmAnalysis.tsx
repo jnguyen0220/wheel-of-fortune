@@ -19,35 +19,17 @@ interface Props {
   tickersWithoutOptions?: string[];
 }
 
-interface LlmRanking {
-  rank: number;
-  ticker: string;
-  type: string;
-  strike: number;
-  dte: number;
-  rationale: string;
+interface StrategicAnalysis {
+  assignment_risk?: string;
+  concentration?: string;
+  earnings_strategy?: string;
+  wheel_cycle?: string;
+  key_risks?: string;
+  action_items?: string[];
 }
 
-interface LlmResponse {
-  summary?: string;
-  ranked_cc: LlmRanking[];
-  ranked_csp: LlmRanking[];
-}
-
-function parseRankingArray(arr: unknown): LlmRanking[] {
-  if (!Array.isArray(arr)) return [];
-  return arr.map((r: Record<string, unknown>) => ({
-    rank: Number(r.rank ?? 0),
-    ticker: String(r.ticker ?? ""),
-    type: String(r.type ?? ""),
-    strike: Number(r.strike ?? 0),
-    dte: Number(r.dte ?? 0),
-    rationale: String(r.rationale ?? ""),
-  }));
-}
-
-/** Try to parse the LLM's ranking response from raw text. */
-function parseLlmRanking(raw: string): LlmResponse | null {
+/** Try to parse the LLM's strategic analysis response from raw text. */
+function parseAnalysis(raw: string): StrategicAnalysis | null {
   // Strip <think> blocks and markdown fences
   const cleaned = raw
     .replace(/<think>[\s\S]*?<\/think>/gi, "")
@@ -55,11 +37,9 @@ function parseLlmRanking(raw: string): LlmResponse | null {
     .replace(/```/g, "")
     .trim();
 
-  // Find the first JSON object
   const start = cleaned.indexOf("{");
   if (start === -1) return null;
 
-  // Find matching closing brace
   let depth = 0;
   let end = -1;
   for (let i = start; i < cleaned.length; i++) {
@@ -72,9 +52,7 @@ function parseLlmRanking(raw: string): LlmResponse | null {
   if (end === -1) end = cleaned.length;
 
   let candidate = cleaned.slice(start, end);
-  // Fix trailing commas
   candidate = candidate.replace(/,\s*([}\]])/g, "$1");
-  // Close unclosed braces
   const openB = (candidate.match(/\{/g) ?? []).length;
   const closeB = (candidate.match(/\}/g) ?? []).length;
   if (openB > closeB) candidate += "}".repeat(openB - closeB);
@@ -84,168 +62,192 @@ function parseLlmRanking(raw: string): LlmResponse | null {
 
   try {
     const parsed = JSON.parse(candidate) as Record<string, unknown>;
-    const summary = typeof parsed.summary === "string" ? parsed.summary : undefined;
-
-    // Support both new split schema and legacy single-array schema
-    let ranked_cc = parseRankingArray(parsed.ranked_cc);
-    let ranked_csp = parseRankingArray(parsed.ranked_csp);
-
-    // Fallback: if LLM used the old ranked_trades array, split by type
-    if (ranked_cc.length === 0 && ranked_csp.length === 0 && Array.isArray(parsed.ranked_trades)) {
-      const all = parseRankingArray(parsed.ranked_trades);
-      ranked_cc = all.filter((r) => r.type.toUpperCase() === "CC");
-      ranked_csp = all.filter((r) => r.type.toUpperCase() === "CSP");
+    const result: StrategicAnalysis = {};
+    if (typeof parsed.assignment_risk === "string") result.assignment_risk = parsed.assignment_risk;
+    if (typeof parsed.concentration === "string") result.concentration = parsed.concentration;
+    if (typeof parsed.earnings_strategy === "string") result.earnings_strategy = parsed.earnings_strategy;
+    if (typeof parsed.wheel_cycle === "string") result.wheel_cycle = parsed.wheel_cycle;
+    if (typeof parsed.key_risks === "string") result.key_risks = parsed.key_risks;
+    if (Array.isArray(parsed.action_items)) {
+      result.action_items = parsed.action_items.filter((x): x is string => typeof x === "string");
     }
-
-    if (ranked_cc.length === 0 && ranked_csp.length === 0) return null;
-    return { summary, ranked_cc, ranked_csp };
+    // Must have at least one section
+    if (Object.keys(result).length === 0) return null;
+    return result;
   } catch {
     return null;
   }
 }
 
-/** Match an LLM ranking entry to an engine recommendation. */
-function matchRanking(
-  ranking: LlmRanking,
-  rec: WheelRecommendation,
-): boolean {
-  const tickerMatch = ranking.ticker.toUpperCase() === rec.ticker.toUpperCase();
-  const legType = rec.leg === "covered_call" ? "CC" : "CSP";
-  const typeMatch = ranking.type.toUpperCase() === legType;
-  const strikeMatch = Math.abs(ranking.strike - rec.contract.strike) < 0.01;
-  // When DTE is present, require it to match (handles same ticker+type+strike at different expiries)
-  const dteMatch = ranking.dte === 0 || ranking.dte === rec.contract.dte;
-  return tickerMatch && typeMatch && strikeMatch && dteMatch;
-}
-
 interface DisplayTrade {
   num: number;
   rec: WheelRecommendation;
-  rationale?: string;
-  /** True when the LLM changed this trade's position from the engine order. */
-  reordered?: boolean;
-  /** Original engine rank (1-based) before LLM reordering. */
-  engineRank: number;
 }
 
-function TradesTable({ ccTrades, cspTrades, model, provider, ccRanked, cspRanked, earningsCalendar, earningsHistory, analystTrends }: {
+function TradesTable({ ccTrades, cspTrades, earningsCalendar, earningsHistory, analystTrends }: {
   ccTrades: DisplayTrade[];
   cspTrades: DisplayTrade[];
-  model: string;
-  provider: string;
-  ccRanked: boolean;
-  cspRanked: boolean;
   earningsCalendar?: Record<string, EarningsCalendar[]>;
   earningsHistory?: Record<string, EarningsResult[]>;
   analystTrends?: Record<string, AnalystTrend[]>;
 }) {
-  const [activeTab, setActiveTab] = useState<"cc" | "csp">(ccTrades.length > 0 ? "cc" : "csp");
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [activeTicker, setActiveTicker] = useState<string>("");
+  const [activeType, setActiveType] = useState<"cc" | "csp">("cc");
   const [showScoreInfo, setShowScoreInfo] = useState(false);
   const scoreBtnRef = useRef<HTMLButtonElement>(null);
   const [scorePos, setScorePos] = useState<{ top: number; right: number } | null>(null);
 
-  const trades = activeTab === "cc" ? ccTrades : cspTrades;
-  const isRanked = activeTab === "cc" ? ccRanked : cspRanked;
-  const isCSP = activeTab === "csp";
+  // Get all unique tickers across CC and CSP, sorted alphabetically
+  const allTickers = React.useMemo(() => {
+    const set = new Set<string>();
+    for (const t of ccTrades) set.add(t.rec.ticker);
+    for (const t of cspTrades) set.add(t.rec.ticker);
+    return [...set].sort();
+  }, [ccTrades, cspTrades]);
 
-  // Group trades by ticker, preserving rank order within each group
-  // For CC: re-number per ticker (each ticker's CCs are independent)
-  const tickerGroups: { ticker: string; trades: DisplayTrade[] }[] = React.useMemo(() => {
-    const map = new Map<string, DisplayTrade[]>();
-    for (const t of trades) {
-      const arr = map.get(t.rec.ticker) ?? [];
-      arr.push(t);
-      map.set(t.rec.ticker, arr);
+  // Auto-select first ticker
+  React.useEffect(() => {
+    if (allTickers.length > 0 && !allTickers.includes(activeTicker)) {
+      setActiveTicker(allTickers[0]);
     }
-    const groups = Array.from(map.entries())
-      .sort(([, a], [, b]) => a[0].num - b[0].num)
-      .map(([ticker, trades]) => ({ ticker, trades }));
+  }, [allTickers, activeTicker]);
 
-    if (!isCSP) {
-      for (const group of groups) {
-        // Sort by global engineRank to determine original engine order within this ticker
-        const engineOrdered = [...group.trades].sort((a, b) => a.engineRank - b.engineRank);
-        const engineRankWithinTicker = new Map<WheelRecommendation, number>();
-        engineOrdered.forEach((t, i) => engineRankWithinTicker.set(t.rec, i + 1));
+  // Trades for active ticker
+  const tickerCC = React.useMemo(() =>
+    ccTrades.filter(t => t.rec.ticker === activeTicker)
+      .sort((a, b) => a.rec.contract.dte - b.rec.contract.dte),
+    [ccTrades, activeTicker],
+  );
 
-        // LLM order (group.trades order) → num; engine order within ticker → engineRank
-        group.trades.forEach((t, i) => {
-          t.engineRank = engineRankWithinTicker.get(t.rec) ?? (i + 1);
-          t.num = i + 1;
-        });
-      }
-    }
+  const tickerCSP = React.useMemo(() =>
+    cspTrades.filter(t => t.rec.ticker === activeTicker)
+      .sort((a, b) => a.rec.contract.dte - b.rec.contract.dte),
+    [cspTrades, activeTicker],
+  );
 
-    return groups;
-  }, [trades, isCSP]);
+  // Auto-select available type when ticker changes
+  React.useEffect(() => {
+    if (activeType === "cc" && tickerCC.length === 0 && tickerCSP.length > 0) setActiveType("csp");
+    if (activeType === "csp" && tickerCSP.length === 0 && tickerCC.length > 0) setActiveType("cc");
+  }, [activeTicker, tickerCC.length, tickerCSP.length, activeType]);
 
-  // For covered calls, only consider a reorder "active" if rank changed within a ticker.
-  const hasVisibleReorder = React.useMemo(() => {
-    if (isCSP) return isRanked;
-    return tickerGroups.some((group) => group.trades.some((t) => t.num !== t.engineRank));
-  }, [isCSP, isRanked, tickerGroups]);
+  const activeTrades = activeType === "cc" ? tickerCC : tickerCSP;
+  const isCSP = activeType === "csp";
+
+  // Underlying price from first trade of active ticker
+  const underlying = activeTrades[0]?.rec.contract.underlying_price
+    ?? tickerCC[0]?.rec.contract.underlying_price
+    ?? tickerCSP[0]?.rec.contract.underlying_price
+    ?? 0;
+
+  if (allTickers.length === 0) {
+    return (
+      <div className="rounded border border-[#30363d] bg-[#161b22] px-4 py-6 text-center text-xs text-[#484f58]">
+        No trades available
+      </div>
+    );
+  }
+
+  const erDates = earningsCalendar?.[activeTicker] ?? [];
+  const nextEarnings = erDates.find(e => e.days_until >= 0) ?? erDates[0];
+  const historyArr = earningsHistory?.[activeTicker] ?? [];
+  const lastResult = historyArr[historyArr.length - 1];
 
   return (
-    <div className="rounded border border-[#30363d] bg-[#161b22] overflow-hidden">
-      <div className="flex items-center gap-3 px-4 py-2 border-b border-[#30363d] bg-[#1c2128]">
+    <div className="rounded-lg border border-[#30363d] bg-[#161b22] overflow-hidden">
+      {/* ── Ticker tabs + stats (like Options page) ── */}
+      <div className="px-4 py-3 flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-2">
+          {allTickers.map((ticker) => (
+              <button
+                key={ticker}
+                onClick={() => setActiveTicker(ticker)}
+                className={`px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all ${
+                  activeTicker === ticker
+                    ? "bg-[#58a6ff] text-white shadow-sm shadow-[#58a6ff30]"
+                    : "bg-[#21262d] text-[#8b949e] hover:text-[#c9d1d9] hover:bg-[#30363d] border border-[#30363d]"
+                }`}
+              >
+                {ticker}
+              </button>
+            ))}
+        </div>
+
+        {/* Stats pills */}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 h-[30px] px-2.5 rounded-md bg-[#0d1117] border border-[#30363d]">
+            <span className="text-[10px] text-[#8b949e] uppercase font-medium">Last</span>
+            <span className="text-xs font-bold text-[#c9d1d9] tabular-nums">${underlying.toFixed(2)}</span>
+          </div>
+          {nextEarnings && nextEarnings.days_until >= 0 && (
+            <div className="flex items-center gap-1.5 h-[30px] px-2.5 rounded-md bg-[#d2992210] border border-[#d2992240]">
+              <svg className="w-3 h-3 text-[#d29922]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
+              </svg>
+              <span className="text-[10px] font-medium text-[#d29922]">ER in {nextEarnings.days_until}d</span>
+            </div>
+          )}
+          {lastResult && (
+            <div className={`flex items-center gap-1.5 h-[30px] px-2.5 rounded-md border ${lastResult.beat ? "bg-[#3fb95010] border-[#3fb95040]" : "bg-[#f8514910] border-[#f8514940]"}`}>
+              <span className={`text-[10px] font-medium ${lastResult.beat ? "text-[#3fb950]" : "text-[#f85149]"}`}>
+                {lastResult.beat ? "Beat" : "Miss"} {lastResult.fiscal_quarter}
+              </span>
+            </div>
+          )}
+          {(() => {
+            const trends = analystTrends?.[activeTicker];
+            const current = trends?.find(t => t.period === "0m") ?? trends?.[0];
+            if (!current) return null;
+            const bullish = current.strong_buy + current.buy;
+            const bearish = current.sell + current.strong_sell;
+            const total = bullish + current.hold + bearish;
+            if (total === 0) return null;
+            const label = bullish > bearish + current.hold ? "Buy" : bearish > bullish ? "Sell" : "Hold";
+            const color = label === "Buy" ? "text-[#3fb950] bg-[#3fb95010] border-[#3fb95040]" : label === "Sell" ? "text-[#f85149] bg-[#f8514910] border-[#f8514940]" : "text-[#8b949e] bg-[#8b949e10] border-[#8b949e40]";
+            return (
+              <div className={`flex items-center gap-1.5 h-[30px] px-2.5 rounded-md border ${color}`} title={`${current.strong_buy} Strong Buy · ${current.buy} Buy · ${current.hold} Hold · ${current.sell} Sell · ${current.strong_sell} Strong Sell`}>
+                <span className="text-[10px] font-medium">{label} ({bullish}B {current.hold}H {bearish}S)</span>
+              </div>
+            );
+          })()}
+        </div>
+      </div>
+
+      {/* ── CC / CSP toggle + counts (like Calls | Puts) ── */}
+      <div className="px-4 py-2 border-t border-[#30363d] bg-[#0d1117] flex items-center gap-3">
         <div className="flex bg-[#161b22] border border-[#30363d] rounded p-0.5">
           {([
-            { key: "cc" as const, label: "Covered Calls", count: ccTrades.length },
-            { key: "csp" as const, label: "Cash-Secured Puts", count: cspTrades.length },
+            { key: "cc" as const, label: "Covered Calls", count: tickerCC.length },
+            { key: "csp" as const, label: "Cash-Secured Puts", count: tickerCSP.length },
           ]).map(({ key, label, count }) => (
             <button
               key={key}
-              onClick={() => { setActiveTab(key); setExpanded({}); }}
+              onClick={() => setActiveType(key)}
               disabled={count === 0}
-              className={`px-3 py-1 text-[10px] font-medium rounded transition ${
-                activeTab === key
+              className={`inline-flex items-center gap-1.5 px-3 py-1 text-[10px] font-medium rounded transition ${
+                activeType === key
                   ? "bg-[#30363d] text-[#c9d1d9]"
                   : "text-[#8b949e] hover:text-[#c9d1d9] disabled:opacity-30 disabled:cursor-not-allowed"
               }`}
             >
               {label}
-              <span className={`ml-1.5 tabular-nums ${activeTab === key ? "text-[#c9d1d9]" : "text-[#484f58]"}`}>{count}</span>
+              <span className={`min-w-[14px] text-center tabular-nums ${activeType === key ? "text-[#c9d1d9]" : "text-[#484f58]"}`}>{count}</span>
             </button>
           ))}
         </div>
-        {hasVisibleReorder && (
-          <span className="text-[10px] font-medium bg-[#58a6ff15] text-[#58a6ff] border border-[#58a6ff30] px-2 py-0.5 rounded">
-            LLM Reordered
-          </span>
-        )}
-        <span className="ml-auto text-[10px] font-medium text-[#484f58]">
-          {provider === "ollama" ? `Ollama / ${model}` : model}
-        </span>
       </div>
 
-      {trades.length === 0 ? (
+      {/* ── Trades table ── */}
+      {activeTrades.length === 0 ? (
         <div className="px-4 py-6 text-center text-xs text-[#484f58]">
-          No {isCSP ? "cash-secured put" : "covered call"} trades available
+          No {isCSP ? "cash-secured put" : "covered call"} trades for {activeTicker}
         </div>
       ) : (
       <div className="overflow-x-auto">
-        <table className="w-full table-fixed text-xs">
-          <colgroup>
-            <col className="w-[24px]" />
-            <col className="w-[36px]" />
-            <col className="w-[52px]" />
-            <col className="w-[72px]" />
-            <col className="w-[64px]" />
-            <col className="w-[88px]" />
-            <col className="w-[48px]" />
-            <col className="w-[60px]" />
-            <col className="w-[100px]" />
-            <col className="w-[56px]" />
-            {isCSP && <col className="w-[84px]" />}
-            <col className="w-[64px]" />
-            <col className="w-[52px]" />
-          </colgroup>
-          <thead>
-            <tr className="border-b border-[#30363d] text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">
-              <th className="px-2 py-2" />
-              <th className="px-2 py-2 text-left">#</th>
-              <th className="px-2 py-2 text-left">Action</th>
+        <table className="w-full text-xs">
+          <thead className="sticky top-0 z-10">
+            <tr className="border-b border-[#30363d] text-[10px] font-semibold text-[#484f58] uppercase tracking-wider bg-[#0d1117]">
+              <th className="pl-3 pr-1 py-2 text-center w-9">#</th>
               <th className="px-2 py-2 text-left">Strike</th>
               <th className="px-2 py-2 text-right">Qty</th>
               <th className="px-2 py-2 text-left">Expiry</th>
@@ -255,7 +257,7 @@ function TradesTable({ ccTrades, cspTrades, model, provider, ccRanked, cspRanked
               <th className="px-2 py-2 text-right">ROC</th>
               {isCSP && <th className="px-2 py-2 text-right">Collateral</th>}
               <th className="px-2 py-2 text-right">OI</th>
-              <th className="px-2 py-2 text-right">
+              <th className="pr-3 pl-2 py-2 text-right">
                 <button
                   ref={scoreBtnRef}
                   type="button"
@@ -269,7 +271,7 @@ function TradesTable({ ccTrades, cspTrades, model, provider, ccRanked, cspRanked
                   }}
                   className="underline decoration-dotted decoration-[#484f58] text-[#58a6ff] hover:text-[#79c0ff] cursor-pointer"
                 >
-                  Score
+                  Quality
                 </button>
                 {showScoreInfo && scorePos && createPortal(
                   <>
@@ -318,123 +320,58 @@ function TradesTable({ ccTrades, cspTrades, model, provider, ccRanked, cspRanked
             </tr>
           </thead>
           <tbody>
-            {tickerGroups.map((group) => {
-              const earningsDates = earningsCalendar?.[group.ticker] ?? [];
-              const nextEarnings = earningsDates.find(e => e.days_until >= 0) ?? earningsDates[0];
-              const historyArr = earningsHistory?.[group.ticker] ?? [];
-              const lastResult = historyArr[historyArr.length - 1];
+            {activeTrades.map((t) => {
+              const { rec } = t;
+              const mid = (rec.contract.bid + rec.contract.ask) / 2;
+              const contracts = rec.contracts_allocated;
+              const totalPremium = mid * contracts * 100;
+              const collateral = rec.contract.strike * contracts * 100;
+              const spansEarnings = rec.earnings_warning || (nextEarnings && nextEarnings.days_until >= 0 && nextEarnings.days_until < rec.contract.dte);
 
               return (
-              <React.Fragment key={group.ticker}>
-                <tr className="bg-[#0d1117] border-t border-[#30363d]">
-                    <td colSpan={isCSP ? 13 : 12} className="px-3 py-1.5">
-                      <span className="font-bold text-[#c9d1d9] text-xs">{group.ticker}</span>
-                      <span className="ml-2 text-[10px] text-[#8b949e]">${group.trades[0].rec.contract.underlying_price.toFixed(2)}</span>
-                      <span className="ml-2 text-[10px] text-[#484f58]">{group.trades.length} trade{group.trades.length !== 1 ? "s" : ""}</span>
-                      {nextEarnings && nextEarnings.days_until >= 0 && (
-                        <span className="ml-3 inline-flex items-center gap-1 text-[10px] font-medium text-[#d29922] bg-[#d2992215] border border-[#d2992240] px-1.5 py-0.5 rounded" title={`Earnings on ${nextEarnings.earnings_date}`}>
-                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
-                          </svg>
-                          ER in {nextEarnings.days_until}d
+                <tr
+                  key={`${activeTicker}-${activeType}-${t.num}`}
+                  className={`transition-colors hover:bg-[#1c2128] ${t.num % 2 === 0 ? "bg-[#0d1117]/50" : ""}`}
+                >
+                    <td className="pl-3 pr-1 py-1.5 text-center tabular-nums text-[10px] text-[#484f58]">
+                      {t.num}
+                    </td>
+                    <td className="px-2 py-1.5 font-medium text-[#c9d1d9] tabular-nums">${rec.contract.strike.toFixed(2)}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums text-[#c9d1d9]">
+                      {contracts}<span className="text-[8px] text-[#484f58] ml-0.5">×100</span>
+                    </td>
+                    <td className="px-2 py-1.5 tabular-nums text-[#8b949e]">{rec.contract.expiration}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums">
+                      {spansEarnings ? (
+                        <span className="text-[#d29922] font-medium" title={nextEarnings ? `Earnings ${nextEarnings.earnings_date} (${nextEarnings.days_until}d)` : 'Spans upcoming earnings'}>
+                          {rec.contract.dte}d<span className="text-[8px] ml-px">⚠</span>
                         </span>
+                      ) : (
+                        <span className="text-[#8b949e]">{rec.contract.dte}d</span>
                       )}
-                      {lastResult && (
-                        <span className={`ml-2 text-[10px] font-medium ${lastResult.beat ? "text-[#3fb950]" : "text-[#f85149]"}`}>
-                          {lastResult.beat ? "Beat" : "Miss"} {lastResult.fiscal_quarter}{lastResult.eps_surprise != null && <span className="ml-1 text-[#484f58]">({lastResult.eps_surprise >= 0 ? "+" : ""}{lastResult.eps_surprise.toFixed(2)})</span>}
-                        </span>
-                      )}
-                      {(() => {
-                        const trends = analystTrends?.[group.ticker];
-                        const current = trends?.find(t => t.period === "0m") ?? trends?.[0];
-                        if (!current) return null;
-                        const bullish = current.strong_buy + current.buy;
-                        const bearish = current.sell + current.strong_sell;
-                        const total = bullish + current.hold + bearish;
-                        if (total === 0) return null;
-                        const label = bullish > bearish + current.hold ? "Buy" : bearish > bullish ? "Sell" : "Hold";
-                        const color = label === "Buy" ? "text-[#3fb950] bg-[#3fb95015] border-[#3fb95040]" : label === "Sell" ? "text-[#f85149] bg-[#f8514915] border-[#f8514940]" : "text-[#8b949e] bg-[#8b949e15] border-[#8b949e40]";
-                        return (
-                          <span className={`ml-3 inline-flex items-center gap-1 text-[10px] font-medium ${color} border px-1.5 py-0.5 rounded`} title={`${current.strong_buy} Strong Buy · ${current.buy} Buy · ${current.hold} Hold · ${current.sell} Sell · ${current.strong_sell} Strong Sell`}>
-                            {label} ({bullish}B {current.hold}H {bearish}S)
-                          </span>
-                        );
-                      })()}
+                    </td>
+                    <td className="px-2 py-1.5 text-right text-[#8b949e] tabular-nums">${mid.toFixed(2)}</td>
+                    <td className="px-2 py-1.5 text-right font-semibold text-[#3fb950] tabular-nums" title={`$${mid.toFixed(2)} × ${contracts} × 100`}>
+                      ${totalPremium.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                    </td>
+                    <td className="px-2 py-1.5 text-right font-semibold text-[#3fb950] tabular-nums">{rec.annualised_roc.toFixed(1)}%</td>
+                    {isCSP && (
+                      <td className="px-2 py-1.5 text-right text-[#8b949e] tabular-nums">
+                        ${collateral.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                      </td>
+                    )}
+                    <td className="px-2 py-1.5 text-right text-[#8b949e] tabular-nums">{rec.contract.open_interest.toLocaleString()}</td>
+                    <td className="pr-3 pl-2 py-1.5 text-right tabular-nums">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <div className="w-8 h-1 rounded-full bg-[#21262d] overflow-hidden">
+                          <div className="h-full rounded-full" style={{ width: `${rec.quality_score}%`, backgroundColor: rec.quality_score >= 70 ? '#3fb950' : rec.quality_score >= 40 ? '#d29922' : '#f85149' }} />
+                        </div>
+                        <span className={`text-[10px] ${rec.quality_score >= 70 ? 'text-[#3fb950]' : rec.quality_score >= 40 ? 'text-[#d29922]' : 'text-[#f85149]'}`}>{rec.quality_score.toFixed(0)}</span>
+                      </div>
                     </td>
                   </tr>
-                {group.trades.map((t) => {
-                  const { rec } = t;
-                  const isOpen = !!expanded[`${activeTab}-${t.num}`];
-                  const mid = (rec.contract.bid + rec.contract.ask) / 2;
-                  const contracts = rec.contracts_allocated;
-                  const totalPremium = mid * contracts * 100;
-                  const collateral = rec.contract.strike * contracts * 100;
-                  const rationale = t.rationale || rec.rationale;
-                  const spansEarnings = nextEarnings && nextEarnings.days_until >= 0 && nextEarnings.days_until < rec.contract.dte;
-
-                  return (
-                    <React.Fragment key={t.num}>
-                      <tr
-                        onClick={() => setExpanded((prev) => ({ ...prev, [`${activeTab}-${t.num}`]: !prev[`${activeTab}-${t.num}`] }))}
-                        className="cursor-pointer hover:bg-[#1c2128] transition border-t border-[#21262d]"
-                      >
-                        <td className="px-2 py-2 text-[#484f58] text-[10px] select-none">
-                          {isOpen ? "▾" : "▸"}
-                        </td>
-                        <td className="px-2 py-2 text-[#8b949e] font-medium">
-                          {t.num === t.engineRank || !hasVisibleReorder ? (
-                            t.num
-                          ) : (
-                            <span className="inline-flex items-center gap-1">
-                              <span className="text-[#484f58] line-through text-[10px]">{t.engineRank}</span>
-                              <span className="text-[#58a6ff]">→</span>
-                              <span>{t.num}</span>
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-2 py-2">
-                          <span className="text-[10px] font-bold text-[#f85149] border border-[#f8514940] px-1 py-0.5 rounded">SELL</span>
-                        </td>
-                        <td className="px-2 py-2 font-medium text-[#c9d1d9] tabular-nums">${rec.contract.strike.toFixed(2)}</td>
-                        <td className="px-2 py-2 text-right font-medium text-[#c9d1d9] tabular-nums">
-                          {contracts}<span className="text-[9px] text-[#484f58] ml-0.5">×100</span>
-                        </td>
-                        <td className="px-2 py-2 text-[#8b949e]">{rec.contract.expiration}</td>
-                        <td className="px-2 py-2 text-right tabular-nums">
-                          {spansEarnings ? (
-                            <span className="text-[#d29922] font-medium" title={`Spans earnings on ${nextEarnings!.earnings_date} (${nextEarnings!.days_until}d away)`}>
-                              {rec.contract.dte}d ⚠
-                            </span>
-                          ) : (
-                            <span className="text-[#8b949e]">{rec.contract.dte}d</span>
-                          )}
-                        </td>
-                        <td className="px-2 py-2 text-right text-[#8b949e] tabular-nums">${mid.toFixed(2)}</td>
-                        <td className="px-2 py-2 text-right font-semibold text-[#3fb950] tabular-nums">
-                          ${totalPremium.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          <div className="text-[9px] font-normal text-[#484f58]">${mid.toFixed(2)} × {contracts} × 100</div>
-                        </td>
-                        <td className="px-2 py-2 text-right font-semibold text-[#3fb950] tabular-nums">{rec.annualised_roc.toFixed(1)}%</td>
-                        {isCSP && (
-                          <td className="px-2 py-2 text-right text-[#8b949e] tabular-nums">
-                            ${collateral.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                          </td>
-                        )}
-                        <td className="px-2 py-2 text-right text-[#8b949e] tabular-nums">{rec.contract.open_interest.toLocaleString()}</td>
-                        <td className="px-2 py-2 text-right text-[#8b949e] tabular-nums">{rec.quality_score.toFixed(0)}</td>
-                      </tr>
-                      {isOpen && rationale && (
-                        <tr className="bg-[#0d1117]">
-                          <td colSpan={isCSP ? 13 : 12} className="px-4 py-2">
-                            <p className="text-[10px] text-[#8b949e] leading-relaxed pl-4">{rationale}</p>
-                          </td>
-                        </tr>
-                      )}
-                    </React.Fragment>
-                  );
-                })}
-              </React.Fragment>
-            ); })}
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -447,11 +384,12 @@ export default function LlmAnalysis({ prompt, recommendations, ollamaModels, oll
   const [provider, setProvider] = useState<Provider>("ollama");
   const [model, setModel] = useState(() => ollamaModels[0] ?? "");
   const [apiKey, setApiKey] = useState("");
-  const [llmResponse, setLlmResponse] = useState<LlmResponse | null>(null);
+  const [analysis, setAnalysis] = useState<StrategicAnalysis | null>(null);
   const [rawAnalysis, setRawAnalysis] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showPrompt, setShowPrompt] = useState(false);
+  const [showCriteria, setShowCriteria] = useState(false);
 
   // Set model when ollama models become available or provider changes
   useEffect(() => {
@@ -466,14 +404,14 @@ export default function LlmAnalysis({ prompt, recommendations, ollamaModels, oll
   }
 
   useEffect(() => {
-    setLlmResponse(null);
+    setAnalysis(null);
     setRawAnalysis(null);
     setError(null);
   }, [provider]);
 
-  // Clear LLM ranking when new recommendations arrive (e.g. Generate pressed)
+  // Clear analysis when new recommendations arrive
   useEffect(() => {
-    setLlmResponse(null);
+    setAnalysis(null);
     setRawAnalysis(null);
   }, [recommendations]);
 
@@ -484,7 +422,7 @@ export default function LlmAnalysis({ prompt, recommendations, ollamaModels, oll
     }
     setLoading(true);
     setError(null);
-    setLlmResponse(null);
+    setAnalysis(null);
     setRawAnalysis(null);
 
     try {
@@ -511,8 +449,10 @@ export default function LlmAnalysis({ prompt, recommendations, ollamaModels, oll
           body: JSON.stringify({
             model,
             messages: prompt.messages,
-            temperature: prompt.temperature,
+            temperature: 0,
             max_tokens: prompt.max_tokens,
+            seed: 42,
+            response_format: { type: "json_object" },
           }),
         });
       }
@@ -536,8 +476,8 @@ export default function LlmAnalysis({ prompt, recommendations, ollamaModels, oll
         return;
       }
       setRawAnalysis(content);
-      const parsed = parseLlmRanking(content);
-      setLlmResponse(parsed);
+      const parsed = parseAnalysis(content);
+      setAnalysis(parsed);
     } catch (err) {
       setError(err instanceof Error ? err.message : "LLM request failed");
     } finally {
@@ -545,75 +485,27 @@ export default function LlmAnalysis({ prompt, recommendations, ollamaModels, oll
     }
   }, [provider, apiKey, model, prompt]);
 
-  // Build display trades: CC and CSP ranked independently.
-  const { ccTrades, cspTrades, ccRanked, cspRanked } = React.useMemo(() => {
+  // Build display trades from engine order (no re-ranking).
+  const { ccTrades, cspTrades } = React.useMemo(() => {
     const engineCC = recommendations.filter((r) => r.leg === "covered_call");
     const engineCSP = recommendations.filter((r) => r.leg === "cash_secured_put");
-
-    function applyRanking(
-      engineGroup: WheelRecommendation[],
-      llmRanking: LlmRanking[],
-    ): { trades: DisplayTrade[]; ranked: boolean } {
-      if (engineGroup.length === 0) return { trades: [], ranked: false };
-
-      // Build rationale map
-      const rationaleMap = new Map<string, string>();
-      for (const rt of llmRanking) {
-        const key = `${rt.ticker.toUpperCase()}|${rt.type.toUpperCase()}|${rt.strike.toFixed(2)}|${rt.dte}`;
-        rationaleMap.set(key, rt.rationale);
-      }
-
-      let ordered = [...engineGroup];
-      let ranked = false;
-
-      if (llmRanking.length > 0) {
-        const matched: WheelRecommendation[] = [];
-        const remaining = [...engineGroup];
-        for (const rt of llmRanking) {
-          const idx = remaining.findIndex((rec) => matchRanking(rt, rec));
-          if (idx !== -1) {
-            matched.push(remaining.splice(idx, 1)[0]);
-          }
-        }
-        if (matched.length >= Math.ceil(engineGroup.length / 2)) {
-          ordered = [...matched, ...remaining];
-          ranked = ordered.some((rec, i) => rec !== engineGroup[i]);
-        }
-      }
-
-      const engineIndex = new Map<WheelRecommendation, number>();
-      engineGroup.forEach((rec, i) => engineIndex.set(rec, i + 1));
-
-      const trades: DisplayTrade[] = ordered.map((rec, i) => {
-        const legType = rec.leg === "covered_call" ? "CC" : "CSP";
-        const key = `${rec.ticker.toUpperCase()}|${legType}|${rec.contract.strike.toFixed(2)}|${rec.contract.dte}`;
-        const enginePos = engineIndex.get(rec) ?? i + 1;
-        return {
-          num: i + 1,
-          rec,
-          rationale: rationaleMap.get(key),
-          reordered: ranked && enginePos !== i + 1,
-          engineRank: enginePos,
-        };
-      });
-
-      return { trades, ranked };
-    }
-
-    const cc = applyRanking(engineCC, llmResponse?.ranked_cc ?? []);
-    const csp = applyRanking(engineCSP, llmResponse?.ranked_csp ?? []);
-
-    return { ccTrades: cc.trades, cspTrades: csp.trades, ccRanked: cc.ranked, cspRanked: csp.ranked };
-  }, [recommendations, llmResponse]);
+    return {
+      ccTrades: engineCC.map((rec, i) => ({ num: i + 1, rec })),
+      cspTrades: engineCSP.map((rec, i) => ({ num: i + 1, rec })),
+    };
+  }, [recommendations]);
 
   return (
-    <section className="bg-[#161b22] rounded border border-[#30363d]">
+    <section className="bg-[#161b22] rounded-lg border border-[#30363d] overflow-hidden">
       {/* Header */}
-      <div className="px-5 py-3.5 border-b border-[#30363d]">
+      <div className="px-5 py-3 border-b border-[#30363d] bg-[#0d1117]">
         <div className="flex items-center gap-3">
-          <h2 className="text-sm font-semibold text-[#c9d1d9]">
+          <h2 className="text-xs font-bold text-[#c9d1d9] uppercase tracking-wider">
             Trade Desk
           </h2>
+          <span className="text-[10px] text-[#484f58] tabular-nums">
+            {ccTrades.length} CC &middot; {cspTrades.length} CSP
+          </span>
           {tickersWithoutOptions && tickersWithoutOptions.length > 0 && (
             <div className="ml-auto flex items-center gap-1.5 text-[#d29922] text-[10px] font-medium">
               <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -631,9 +523,6 @@ export default function LlmAnalysis({ prompt, recommendations, ollamaModels, oll
       </div>
 
       <div className="px-5 py-4">
-        <p className="text-[10px] text-[#8b949e] mb-3">
-          {recommendations.length} trades ranked by engine score. Run AI analysis to reorder by model insight.
-        </p>
         {/* Controls row */}
         <div className="flex flex-wrap gap-2 items-center mb-4">
           <select
@@ -708,46 +597,182 @@ export default function LlmAnalysis({ prompt, recommendations, ollamaModels, oll
           </div>
         )}
 
-        {/* Prompt inspector */}
-        <div className="mb-4">
+        <div className="flex items-center gap-3 mb-4">
           <button
             onClick={() => setShowPrompt((v) => !v)}
-            className="text-[10px] text-[#484f58] hover:text-[#8b949e] font-medium"
+            className={`text-[10px] font-medium px-2.5 py-1 rounded border transition ${showPrompt ? "bg-[#21262d] border-[#30363d] text-[#c9d1d9]" : "border-transparent text-[#484f58] hover:text-[#8b949e]"}`}
           >
-            {showPrompt ? "▾ Hide prompt" : "▸ Show prompt"}
+            {showPrompt ? "▾ Prompt" : "▸ Prompt"}
           </button>
-          {showPrompt && (
-            <div className="mt-2 space-y-2">
-              {prompt.messages.map((msg: ChatMessage, i: number) => (
-                <div key={i} className="bg-[#0d1117] rounded p-3 border border-[#21262d]">
-                  <p className="text-[10px] font-semibold text-[#484f58] uppercase tracking-wider mb-1">
-                    {msg.role}
-                  </p>
-                  <pre className="text-[10px] text-[#8b949e] whitespace-pre-wrap font-mono leading-relaxed overflow-auto max-h-60">
-                    {msg.content}
-                  </pre>
-                </div>
-              ))}
-            </div>
-          )}
+          <button
+            onClick={() => setShowCriteria((v) => !v)}
+            className={`text-[10px] font-medium px-2.5 py-1 rounded border transition ${showCriteria ? "bg-[#21262d] border-[#30363d] text-[#c9d1d9]" : "border-transparent text-[#484f58] hover:text-[#8b949e]"}`}
+          >
+            {showCriteria ? "▾ Criteria" : "▸ Criteria"}
+          </button>
         </div>
-
-        {/* LLM Summary */}
-        {llmResponse?.summary && (
-          <div className="rounded border border-[#30363d] bg-[#0d1117] px-4 py-3 text-xs text-[#c9d1d9] leading-relaxed mb-4">
-            <p className="text-[10px] font-semibold text-[#8b949e] uppercase tracking-widest mb-1">Summary</p>
-            <p>{llmResponse.summary}</p>
+        {showPrompt && (
+          <div className="mb-4 space-y-2">
+            {prompt.messages.map((msg: ChatMessage, i: number) => (
+              <div key={i} className="bg-[#0d1117] rounded p-3 border border-[#21262d]">
+                <p className="text-[10px] font-semibold text-[#484f58] uppercase tracking-wider mb-1">
+                  {msg.role}
+                </p>
+                <pre className="text-[10px] text-[#8b949e] whitespace-pre-wrap font-mono leading-relaxed overflow-auto max-h-60">
+                  {msg.content}
+                </pre>
+              </div>
+            ))}
           </div>
         )}
 
-        {/* Loading state */}
+        {/* Selection Criteria */}
+        {showCriteria && (
+          <div className="mb-4 rounded border border-[#30363d] bg-[#0d1117] overflow-hidden">
+              {/* Hard Filters */}
+              <div className="px-4 py-3 border-b border-[#21262d]">
+                <p className="text-[10px] font-semibold text-[#c9d1d9] uppercase tracking-wider mb-2">Hard Filters</p>
+                <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-[10px]">
+                  <div className="flex justify-between">
+                    <span className="text-[#8b949e]">DTE range</span>
+                    <span className="text-[#c9d1d9] tabular-nums font-medium">14 – 45 days</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#8b949e]">Min open interest</span>
+                    <span className="text-[#c9d1d9] tabular-nums font-medium">100</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#8b949e]">CC delta</span>
+                    <span className="text-[#c9d1d9] tabular-nums font-medium">0.20 – 0.35</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#8b949e]">CSP delta</span>
+                    <span className="text-[#c9d1d9] tabular-nums font-medium">0.20 – 0.35</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#8b949e]">CC strike</span>
+                    <span className="text-[#c9d1d9] font-medium">Above underlying</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#8b949e]">CSP strike</span>
+                    <span className="text-[#c9d1d9] font-medium">Below underlying</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#8b949e]">Min annualized ROC</span>
+                    <span className="text-[#c9d1d9] tabular-nums font-medium">12%</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#8b949e]">Earnings warning</span>
+                    <span className="text-[#c9d1d9] tabular-nums font-medium">14 days</span>
+                  </div>
+                </div>
+                <p className="text-[9px] text-[#484f58] mt-2">Relaxed fallback (delta 0.10–0.50, OI ≥ 5, ROC ≥ 5%) applies when no strict matches found.</p>
+              </div>
+              {/* Quality Score */}
+              <div className="px-4 py-3 border-b border-[#21262d]">
+                <p className="text-[10px] font-semibold text-[#c9d1d9] uppercase tracking-wider mb-2">Quality Score (0–100)</p>
+                <div className="space-y-1.5">
+                  {([
+                    { label: "ROC", max: 50, desc: "Annualized return, capped at 60%" },
+                    { label: "Delta", max: 20, desc: "Proximity to 0.275 target" },
+                    { label: "Liquidity", max: 20, desc: "Open interest, full at 5,000+" },
+                    { label: "IV", max: 10, desc: "Sweet spot 25–60%" },
+                  ]).map(({ label, max, desc }) => (
+                    <div key={label} className="flex items-center gap-2 text-[10px]">
+                      <span className="text-[#c9d1d9] font-medium w-14">{label}</span>
+                      <div className="flex-1 h-1.5 rounded-full bg-[#21262d] overflow-hidden">
+                        <div className="h-full rounded-full bg-[#3fb950]" style={{ width: `${max}%` }} />
+                      </div>
+                      <span className="text-[#3fb950] tabular-nums font-medium w-6 text-right">{max}</span>
+                      <span className="text-[#484f58] w-44 truncate">{desc}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {/* Selection Logic */}
+              <div className="px-4 py-3">
+                <p className="text-[10px] font-semibold text-[#c9d1d9] uppercase tracking-wider mb-2">Selection Logic</p>
+                <div className="grid grid-cols-2 gap-4 text-[10px]">
+                  <div>
+                    <p className="text-[#58a6ff] font-medium mb-1">Covered Calls</p>
+                    <ul className="text-[#8b949e] space-y-0.5 list-none">
+                      <li>Requires ≥ 100 shares held</li>
+                      <li>Up to 3 strike/DTE tiers for diversification</li>
+                      <li>Lot allocation: 40 / 40 / 20 split</li>
+                      <li>Diversity bonus for spread across strikes & DTEs</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <p className="text-[#58a6ff] font-medium mb-1">Cash-Secured Puts</p>
+                    <ul className="text-[#8b949e] space-y-0.5 list-none">
+                      <li>Cross-ticker optimization by total premium</li>
+                      <li>Greedy cash allocation across up to 3 tickers</li>
+                      <li>Per-ticker tier selection (up to 3 tiers)</li>
+                      <li>Alternatives shown for comparison</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+          </div>
+        )}
+
+        {/* Strategic Analysis */}
+        {analysis && (
+          <div className="rounded border border-[#30363d] bg-[#0d1117] overflow-hidden mb-4">
+            <div className="px-4 py-2.5 border-b border-[#21262d]">
+              <p className="text-[10px] font-semibold text-[#c9d1d9] uppercase tracking-widest">AI Strategic Analysis</p>
+            </div>
+            <div className="divide-y divide-[#21262d]">
+              {analysis.assignment_risk && (
+                <div className="px-4 py-3">
+                  <p className="text-[10px] font-semibold text-[#f85149] uppercase tracking-wider mb-1">Assignment Risk</p>
+                  <p className="text-xs text-[#c9d1d9] leading-relaxed">{analysis.assignment_risk}</p>
+                </div>
+              )}
+              {analysis.concentration && (
+                <div className="px-4 py-3">
+                  <p className="text-[10px] font-semibold text-[#d29922] uppercase tracking-wider mb-1">Concentration</p>
+                  <p className="text-xs text-[#c9d1d9] leading-relaxed">{analysis.concentration}</p>
+                </div>
+              )}
+              {analysis.earnings_strategy && (
+                <div className="px-4 py-3">
+                  <p className="text-[10px] font-semibold text-[#d29922] uppercase tracking-wider mb-1">Earnings Strategy</p>
+                  <p className="text-xs text-[#c9d1d9] leading-relaxed">{analysis.earnings_strategy}</p>
+                </div>
+              )}
+              {analysis.wheel_cycle && (
+                <div className="px-4 py-3">
+                  <p className="text-[10px] font-semibold text-[#58a6ff] uppercase tracking-wider mb-1">Wheel Cycle</p>
+                  <p className="text-xs text-[#c9d1d9] leading-relaxed">{analysis.wheel_cycle}</p>
+                </div>
+              )}
+              {analysis.key_risks && (
+                <div className="px-4 py-3">
+                  <p className="text-[10px] font-semibold text-[#f85149] uppercase tracking-wider mb-1">Key Risks</p>
+                  <p className="text-xs text-[#c9d1d9] leading-relaxed">{analysis.key_risks}</p>
+                </div>
+              )}
+              {analysis.action_items && analysis.action_items.length > 0 && (
+                <div className="px-4 py-3">
+                  <p className="text-[10px] font-semibold text-[#3fb950] uppercase tracking-wider mb-1.5">Action Items</p>
+                  <ol className="list-decimal list-inside space-y-1">
+                    {analysis.action_items.map((item, i) => (
+                      <li key={i} className="text-xs text-[#c9d1d9] leading-relaxed">{item}</li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Parse failure — show raw response */}
-        {rawAnalysis && !llmResponse && !loading && (
+        {rawAnalysis && !analysis && !loading && (
           <div className="rounded border border-[#d29922] bg-[#d2992215] px-4 py-3 text-xs text-[#d29922] mb-4">
-            <p className="font-medium mb-1.5">Could not parse LLM ranking — showing engine order.</p>
+            <p className="font-medium mb-1.5">Could not parse AI analysis — showing raw response.</p>
             <pre className="text-[10px] whitespace-pre-wrap text-[#8b949e] max-h-40 overflow-auto bg-[#0d1117] border border-[#30363d] rounded p-2">
-              {rawAnalysis.slice(0, 500)}
+              {rawAnalysis.slice(0, 1000)}
             </pre>
           </div>
         )}
@@ -758,10 +783,6 @@ export default function LlmAnalysis({ prompt, recommendations, ollamaModels, oll
             <TradesTable
               ccTrades={ccTrades}
               cspTrades={cspTrades}
-              model={model}
-              provider={provider}
-              ccRanked={ccRanked}
-              cspRanked={cspRanked}
               earningsCalendar={earningsCalendar}
               earningsHistory={earningsHistory}
               analystTrends={analystTrends}

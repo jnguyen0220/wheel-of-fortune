@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import type { OptionsChain, OptionsContract } from "@/lib/types";
+import type { OptionsChain, OptionsContract, EarningsCalendar } from "@/lib/types";
 
 interface Props {
   chains: OptionsChain[];
@@ -14,9 +14,10 @@ interface Props {
   onCashChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   formatCash: (v: string) => string;
   cashRef: React.RefObject<HTMLInputElement | null>;
+  earningsCalendar?: Record<string, EarningsCalendar[]>;
 }
 
-export default function OptionsTab({ chains, onRecommendations, recommendationsLoading, cashInput, cashEditing, onCashEditStart, onCashEditEnd, onCashChange, formatCash, cashRef }: Props) {
+export default function OptionsTab({ chains, onRecommendations, recommendationsLoading, cashInput, cashEditing, onCashEditStart, onCashEditEnd, onCashChange, formatCash, cashRef, earningsCalendar }: Props) {
   const [activeTicker, setActiveTicker] = useState<string>("");
   const [activeType, setActiveType] = useState<"CALL" | "PUT">("CALL");
   const [activeExpiration, setActiveExpiration] = useState<string>("");
@@ -182,15 +183,43 @@ export default function OptionsTab({ chains, onRecommendations, recommendationsL
           {/* Stats pills */}
           {activeChain && (
             <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#0d1117] border border-[#30363d]">
+              <div className="flex items-center gap-1.5 h-[30px] px-2.5 rounded-md bg-[#0d1117] border border-[#30363d]">
                 <span className="text-[10px] text-[#8b949e] uppercase font-medium">Last</span>
                 <span className="text-xs font-bold text-[#c9d1d9] tabular-nums">${underlying.toFixed(2)}</span>
               </div>
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#0d1117] border border-[#30363d]">
+              {(() => {
+                const total = activeChain.contracts.length;
+                const { label, color, dot } = total >= 500
+                  ? { label: "High", color: "text-[#3fb950]", dot: "bg-[#3fb950]" }
+                  : total >= 200
+                  ? { label: "Med", color: "text-[#d29922]", dot: "bg-[#d29922]" }
+                  : { label: "Low", color: "text-[#f85149]", dot: "bg-[#f85149]" };
+                return (
+                  <div className="flex items-center gap-1.5 h-[30px] px-2.5 rounded-md bg-[#0d1117] border border-[#30363d]" title={`${total} contracts available`}>
+                    <span className={`inline-block w-1.5 h-1.5 rounded-full ${dot}`} />
+                    <span className={`text-[10px] uppercase font-medium ${color}`}>{label}</span>
+                    <span className="text-xs font-medium text-[#8b949e] tabular-nums">{total}</span>
+                  </div>
+                );
+              })()}
+              {(() => {
+                const erDates = earningsCalendar?.[activeTicker] ?? [];
+                const next = erDates.find(e => e.days_until >= 0) ?? erDates[0];
+                if (!next || next.days_until < 0) return null;
+                return (
+                  <div className="flex items-center gap-1.5 h-[30px] px-2.5 rounded-md bg-[#d2992210] border border-[#d2992240]">
+                    <svg className="w-3 h-3 text-[#d29922]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
+                    </svg>
+                    <span className="text-[10px] font-medium text-[#d29922]">ER in {next.days_until}d</span>
+                  </div>
+                );
+              })()}
+              <div className="flex items-center gap-1.5 h-[30px] px-2.5 rounded-md bg-[#0d1117] border border-[#30363d]">
                 <span className="text-[10px] text-[#8b949e] uppercase font-medium">P/C</span>
                 <span className="text-xs font-bold text-[#c9d1d9] tabular-nums">{putCallRatio}</span>
               </div>
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#0d1117] border border-[#30363d]">
+              <div className="flex items-center gap-1.5 h-[30px] px-2.5 rounded-md bg-[#0d1117] border border-[#30363d]">
                 <span className="text-[10px] text-[#238636] uppercase font-medium">Calls</span>
                 <span className="text-xs font-medium text-[#8b949e] tabular-nums">{totalCallContracts}</span>
                 <span className="text-[#30363d] mx-0.5">|</span>

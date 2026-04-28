@@ -11,7 +11,7 @@ use std::sync::Arc;
 use tracing::error;
 
 use crate::llm::prompt::build_ranking_prompt;
-use crate::models::{Inventory, StockMarketData};
+use crate::models::{AnalystTrend, EarningsCalendar, Inventory, OptionsChain, StockMarketData};
 use crate::strategy::wheel::{evaluate_wheel, WheelRecommendation};
 use crate::AppState;
 
@@ -36,6 +36,13 @@ pub struct RecommendationRequest {
     pub dte_min: Option<u32>,
     /// Maximum days-to-expiration filter applied to options contracts.
     pub dte_max: Option<u32>,
+    /// Pre-fetched options chains from the frontend. When provided, the backend
+    /// skips its own Yahoo Finance fetch — a major latency saving.
+    pub chains: Option<Vec<OptionsChain>>,
+    /// Upcoming earnings dates per ticker (from the frontend).
+    pub earnings_calendar: Option<Vec<EarningsCalendar>>,
+    /// Analyst recommendation trends per ticker (from the frontend).
+    pub analyst_trends: Option<Vec<AnalystTrend>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -99,20 +106,24 @@ async fn get_recommendations(
             .into_response();
     }
 
-    // Fetch options chains via the configured adapter.
-    let chains = match state
-        .options_provider
-        .fetch_options_chains(&merged_tickers)
-        .await
-    {
-        Ok(c) => c,
-        Err(e) => {
-            error!("Failed to fetch options chains: {e:#}");
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": format!("{e:#}") })),
-            )
-                .into_response();
+    // Use pre-fetched chains from the frontend when available; otherwise fetch.
+    let chains = if let Some(c) = req.chains {
+        c
+    } else {
+        match state
+            .options_provider
+            .fetch_options_chains(&merged_tickers)
+            .await
+        {
+            Ok(c) => c,
+            Err(e) => {
+                error!("Failed to fetch options chains: {e:#}");
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": format!("{e:#}") })),
+                )
+                    .into_response();
+            }
         }
     };
 
@@ -187,6 +198,8 @@ async fn get_recommendations(
     let available_cash = req.available_cash.unwrap_or(f64::INFINITY);
     let min_dte = req.dte_min.unwrap_or(0);
     let max_dte = req.dte_max.unwrap_or(u32::MAX).max(min_dte + 1);
+    let earnings = req.earnings_calendar.unwrap_or_default();
+    let analyst = req.analyst_trends.unwrap_or_default();
 
     // Run the wheel strategy engine to get pre-computed, validated trades.
     let recommendations = evaluate_wheel(
@@ -195,10 +208,19 @@ async fn get_recommendations(
         available_cash,
         min_dte,
         max_dte,
+        &earnings,
     );
 
     // Build an LLM prompt that asks the model to rank these pre-computed trades.
-    let llm_prompt = build_ranking_prompt(&recommendations, &inventory, available_cash, min_dte, max_dte);
+    let llm_prompt = build_ranking_prompt(
+        &recommendations,
+        &inventory,
+        available_cash,
+        min_dte,
+        max_dte,
+        &earnings,
+        &analyst,
+    );
 
     Json(RecommendationResponse {
         market_data,

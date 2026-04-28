@@ -34,9 +34,11 @@ export async function POST(req: NextRequest) {
         messages: body.messages,
         stream: false,
         think: false,          // disable <think> chain for deepseek-r1 and similar
+        format: "json",        // force JSON output mode for consistent parsing
         options: {
           temperature: body.temperature ?? 0.3,
-          num_predict: 4096,   // enough tokens for all trade rows plus summary
+          seed: 42,            // fixed seed for reproducible results
+          num_predict: body.max_tokens ?? 4096,
         },
       }),
     });

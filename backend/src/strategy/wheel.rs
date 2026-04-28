@@ -12,9 +12,14 @@
 //! This module evaluates the user's inventory and the available options chain
 //! to surface the best CSP and CC candidates ranked by quality criteria.
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
-use crate::models::{OptionsChain, OptionsContract, OptionType, StockHolding};
+use crate::models::{EarningsCalendar, OptionsChain, OptionsContract, OptionType, StockHolding};
+
+/// Warn when a contract's DTE spans past an earnings date within this window.
+const EARNINGS_WARNING_DAYS: i64 = 14;
 
 // ── Quality thresholds (configurable in a real app) ─────────────────────────
 
@@ -60,6 +65,9 @@ pub struct WheelRecommendation {
     /// For covered calls this reflects the tiered allocation across strikes.
     /// For CSPs this is always 1 (each qualifying strike listed separately).
     pub contracts_allocated: u32,
+    /// True when the contract's DTE spans past a nearby earnings date.
+    #[serde(default)]
+    pub earnings_warning: bool,
 }
 
 // ── Engine ────────────────────────────────────────────────────────────────────
@@ -77,8 +85,31 @@ pub fn evaluate_wheel(
     available_cash: f64,
     min_dte: u32,
     max_dte: u32,
+    earnings: &[EarningsCalendar],
 ) -> Vec<WheelRecommendation> {
     let mut recommendations: Vec<WheelRecommendation> = Vec::new();
+
+    // Build a map of ticker → nearest future earnings (days_until).
+    let mut earnings_map: HashMap<String, i64> = HashMap::new();
+    for e in earnings {
+        if e.days_until >= 0 {
+            let key = e.ticker.to_uppercase();
+            let existing = earnings_map.get(&key).copied().unwrap_or(i64::MAX);
+            if e.days_until < existing {
+                earnings_map.insert(key, e.days_until);
+            }
+        }
+    }
+
+    // Returns true when the contract's DTE spans past a nearby earnings date.
+    let has_earnings_risk = |ticker: &str, dte: u32| -> bool {
+        match earnings_map.get(&ticker.to_uppercase()) {
+            Some(&days_until) if days_until <= EARNINGS_WARNING_DAYS => {
+                (dte as i64) > days_until
+            }
+            _ => false,
+        }
+    };
 
     // ── Phase 1: Covered Calls (per-ticker — requires holdings) ──────────────
     for chain in chains {
@@ -152,6 +183,7 @@ pub fn evaluate_wheel(
                     rationale,
                     shares_held,
                     contracts_allocated: *n_contracts as u32,
+                    earnings_warning: has_earnings_risk(&chain.ticker, contract.dte),
                 });
             }
         }
@@ -488,6 +520,7 @@ pub fn evaluate_wheel(
                 rationale: make_rationale(entry, Some(label.as_str()), *n),
                 shares_held: entry.shares_held,
                 contracts_allocated: *n,
+                earnings_warning: has_earnings_risk(&entry.ticker, entry.contract.dte),
             });
         }
 
@@ -538,6 +571,7 @@ pub fn evaluate_wheel(
                 rationale: make_rationale(entry, Some(label), n),
                 shares_held: entry.shares_held,
                 contracts_allocated: n,
+                earnings_warning: has_earnings_risk(&entry.ticker, entry.contract.dte),
             });
             *count += 1;
             alt_emitted += 1;

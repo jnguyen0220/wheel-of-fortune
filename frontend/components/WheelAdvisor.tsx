@@ -11,9 +11,6 @@ import type {
   WheelRecommendation,
 } from "@/lib/types";
 import {
-  getAnalystTrends,
-  getEarningsCalendar,
-  getEarningsHistory,
   getInventory,
   getOptionsChains,
   getRecommendations,
@@ -116,27 +113,27 @@ export default function WheelAdvisor() {
     setLoading(true);
     setError(null);
     try {
-      const [result, earnings, history, trends] = await Promise.all([
-        getRecommendations({
-          inventory: { holdings },
-          tickers,
-          available_cash: availableCash > 0 ? availableCash : undefined,
-          ...(() => {
-            const dtes = optionsChains.flatMap(c => c.contracts.map(ct => ct.dte));
-            if (dtes.length === 0) return {};
-            return { dte_min: Math.min(...dtes), dte_max: Math.max(...dtes) };
-          })(),
-        }),
-        getEarningsCalendar(tickers).catch(() => ({} as Record<string, EarningsCalendar[]>)),
-        getEarningsHistory(tickers).catch(() => ({} as Record<string, EarningsResult[]>)),
-        getAnalystTrends(tickers).catch(() => ({} as Record<string, AnalystTrend[]>)),
-      ]);
+      const result = await getRecommendations({
+        inventory: { holdings },
+        tickers,
+        available_cash: availableCash > 0 ? availableCash : undefined,
+        chains: optionsChains.length > 0 ? optionsChains : undefined,
+        ...(() => {
+          const dtes = optionsChains.flatMap(c => c.contracts.map(ct => ct.dte));
+          if (dtes.length === 0) return {};
+          return { dte_min: Math.min(...dtes), dte_max: Math.max(...dtes) };
+        })(),
+        // Flatten earnings calendar and analyst trends for LLM context
+        earnings_calendar: Object.values(earningsCalendar).flat().length > 0
+          ? Object.values(earningsCalendar).flat()
+          : undefined,
+        analyst_trends: Object.values(analystTrends).flat().length > 0
+          ? Object.values(analystTrends).flat()
+          : undefined,
+      });
       setLlmPrompt(result.llm_prompt);
       setRecommendations(result.recommendations ?? []);
       setTickersWithoutOptions(result.tickers_without_options ?? []);
-      setEarningsCalendar(earnings);
-      setEarningsHistory(history);
-      setAnalystTrends(trends);
       setActiveTab("ai");
     } catch (err) {
       setError(
@@ -203,6 +200,8 @@ export default function WheelAdvisor() {
               onChanged={refreshInventory}
               onGenerate={fetchOptionChains}
               generating={optionsLoading}
+              onEarningsLoaded={(cal, hist) => { setEarningsCalendar(cal); setEarningsHistory(hist); }}
+              onAnalystTrendsLoaded={setAnalystTrends}
             />
           </div>
 
@@ -218,6 +217,7 @@ export default function WheelAdvisor() {
               onCashChange={handleCashChange}
               formatCash={formatLive}
               cashRef={cashRef}
+              earningsCalendar={earningsCalendar}
             />
           </div>
 

@@ -67,6 +67,8 @@ export interface WheelRecommendation {
   shares_held: number;
   /** How many contracts to sell at this strike/expiry. */
   contracts_allocated: number;
+  /** True when the contract's DTE spans past a nearby earnings date. */
+  earnings_warning?: boolean;
 }
 
 export interface ChatMessage {
@@ -97,6 +99,9 @@ export interface RecommendationRequest {
   available_cash?: number;
   dte_min?: number;
   dte_max?: number;
+  chains?: OptionsChain[];
+  earnings_calendar?: EarningsCalendar[];
+  analyst_trends?: AnalystTrend[];
 }
 
 // ── Earnings types ───────────────────────────────────────────────────────────

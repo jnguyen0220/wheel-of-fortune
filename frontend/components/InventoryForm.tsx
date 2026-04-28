@@ -9,6 +9,8 @@ interface Props {
   onChanged: () => void;
   onGenerate?: () => void;
   generating?: boolean;
+  onEarningsLoaded?: (calendar: Record<string, EarningsCalendar[]>, history: Record<string, EarningsResult[]>) => void;
+  onAnalystTrendsLoaded?: (trends: Record<string, AnalystTrend[]>) => void;
 }
 
 interface FormFields {
@@ -28,6 +30,8 @@ export default function InventoryForm({
   onChanged,
   onGenerate,
   generating = false,
+  onEarningsLoaded,
+  onAnalystTrendsLoaded,
 }: Props) {
   const [form, setForm] = useState<FormFields>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
@@ -57,6 +61,8 @@ export default function InventoryForm({
       }
       setEarningsData(merged);
       setAnalystTrends(trends);
+      onEarningsLoaded?.(calendar, history);
+      onAnalystTrendsLoaded?.(trends);
     } catch {
       // silently ignore – market data is supplementary
     } finally {

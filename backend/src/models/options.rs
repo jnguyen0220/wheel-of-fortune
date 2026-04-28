@@ -38,9 +38,15 @@ pub struct OptionsContract {
 }
 
 impl OptionsContract {
-    /// Mid-market price
+    /// Mid-market price (falls back to last traded price when bid/ask are unavailable)
     pub fn mid_price(&self) -> f64 {
-        (self.bid + self.ask) / 2.0
+        if self.bid > 0.0 && self.ask > 0.0 {
+            (self.bid + self.ask) / 2.0
+        } else if self.bid > 0.0 || self.ask > 0.0 {
+            self.bid + self.ask // one is zero, so this gives the non-zero one
+        } else {
+            self.last
+        }
     }
 
     /// Annualised return on capital for a CSP (premium / strike)
