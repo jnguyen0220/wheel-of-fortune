@@ -21,21 +21,33 @@ use crate::models::{EarningsCalendar, OptionsChain, OptionsContract, OptionType,
 /// Warn when a contract's DTE spans past an earnings date within this window.
 const EARNINGS_WARNING_DAYS: i64 = 14;
 
-// ── Quality thresholds (configurable in a real app) ─────────────────────────
+// ── Quality thresholds (defaults, overridable via FilterParams) ──────────────
 
 /// Minimum annualised return on capital to surface a recommendation.
-const MIN_ANNUALISED_ROC: f64 = 12.0; // percent
+const DEFAULT_MIN_ANNUALISED_ROC: f64 = 12.0; // percent
 
 /// Target delta range for CSPs (absolute value).
-const CSP_DELTA_MIN: f64 = 0.20;
-const CSP_DELTA_MAX: f64 = 0.35;
+const DEFAULT_CSP_DELTA_MIN: f64 = 0.20;
+const DEFAULT_CSP_DELTA_MAX: f64 = 0.35;
 
 /// Target delta range for CCs (absolute value).
-const CC_DELTA_MIN: f64 = 0.20;
-const CC_DELTA_MAX: f64 = 0.35;
+const DEFAULT_CC_DELTA_MIN: f64 = 0.20;
+const DEFAULT_CC_DELTA_MAX: f64 = 0.35;
 
 /// Minimum open interest to ensure liquidity.
-const MIN_OPEN_INTEREST: u64 = 100;
+const DEFAULT_MIN_OPEN_INTEREST: u64 = 100;
+
+/// Filter parameters that can be overridden by the caller.
+#[derive(Debug, Clone, Default)]
+pub struct FilterParams {
+    pub min_open_interest: Option<u64>,
+    pub cc_delta_min: Option<f64>,
+    pub cc_delta_max: Option<f64>,
+    pub csp_delta_min: Option<f64>,
+    pub csp_delta_max: Option<f64>,
+    pub min_annualised_roc: Option<f64>,
+    pub max_annualised_roc: Option<f64>,
+}
 
 // ── Output types ─────────────────────────────────────────────────────────────
 
@@ -86,8 +98,19 @@ pub fn evaluate_wheel(
     min_dte: u32,
     max_dte: u32,
     earnings: &[EarningsCalendar],
+    filters: &FilterParams,
 ) -> Vec<WheelRecommendation> {
     let mut recommendations: Vec<WheelRecommendation> = Vec::new();
+
+    // Resolve filter values (use caller overrides or defaults).
+    let min_oi = filters.min_open_interest.unwrap_or(DEFAULT_MIN_OPEN_INTEREST);
+    let cc_delta_min = filters.cc_delta_min.unwrap_or(DEFAULT_CC_DELTA_MIN);
+    let cc_delta_max = filters.cc_delta_max.unwrap_or(DEFAULT_CC_DELTA_MAX);
+    let csp_delta_min = filters.csp_delta_min.unwrap_or(DEFAULT_CSP_DELTA_MIN);
+    let csp_delta_max = filters.csp_delta_max.unwrap_or(DEFAULT_CSP_DELTA_MAX);
+    let min_roc = filters.min_annualised_roc.unwrap_or(DEFAULT_MIN_ANNUALISED_ROC);
+    let max_roc = filters.max_annualised_roc.unwrap_or(120.0);
+    let earnings_warn_days = EARNINGS_WARNING_DAYS;
 
     // Build a map of ticker → nearest future earnings (days_until).
     let mut earnings_map: HashMap<String, i64> = HashMap::new();
@@ -104,7 +127,7 @@ pub fn evaluate_wheel(
     // Returns true when the contract's DTE spans past a nearby earnings date.
     let has_earnings_risk = |ticker: &str, dte: u32| -> bool {
         match earnings_map.get(&ticker.to_uppercase()) {
-            Some(&days_until) if days_until <= EARNINGS_WARNING_DAYS => {
+            Some(&days_until) if days_until <= earnings_warn_days => {
                 (dte as i64) > days_until
             }
             _ => false,
@@ -130,11 +153,12 @@ pub fn evaluate_wheel(
                     c.option_type == OptionType::Call
                         && c.dte >= min_dte
                         && c.dte <= max_dte
-                        && c.delta.abs() >= CC_DELTA_MIN
-                        && c.delta.abs() <= CC_DELTA_MAX
-                        && c.open_interest >= MIN_OPEN_INTEREST
+                        && c.delta.abs() >= cc_delta_min
+                        && c.delta.abs() <= cc_delta_max
+                        && c.open_interest >= min_oi
                         && c.strike > chain.underlying_price
-                        && c.cc_return_on_capital() >= MIN_ANNUALISED_ROC
+                        && c.cc_return_on_capital() >= min_roc
+                        && c.cc_return_on_capital() <= max_roc
                 })
                 .collect();
 
@@ -244,10 +268,11 @@ pub fn evaluate_wheel(
             .filter(|c| {
                 c.option_type == OptionType::Put
                     && c.dte >= min_dte && c.dte <= max_dte
-                    && c.delta.abs() >= CSP_DELTA_MIN && c.delta.abs() <= CSP_DELTA_MAX
-                    && c.open_interest >= MIN_OPEN_INTEREST
+                    && c.delta.abs() >= csp_delta_min && c.delta.abs() <= csp_delta_max
+                    && c.open_interest >= min_oi
                     && c.strike < chain.underlying_price
-                    && c.csp_return_on_capital() >= MIN_ANNUALISED_ROC
+                    && c.csp_return_on_capital() >= min_roc
+                    && c.csp_return_on_capital() <= max_roc
             })
             .cloned()
             .collect();

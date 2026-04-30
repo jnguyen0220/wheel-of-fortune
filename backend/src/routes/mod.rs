@@ -1,5 +1,6 @@
 pub mod analyst;
 pub mod earnings;
+pub mod financials;
 pub mod inventory;
 pub mod market_data;
 pub mod options;
@@ -30,4 +31,5 @@ fn api_routes(state: Arc<AppState>) -> Router {
         .nest("/recommendations", recommendations::router(state))
         .nest("/earnings", earnings::router())
         .nest("/analyst-trends", analyst::router())
+        .nest("/financials", financials::router())
 }

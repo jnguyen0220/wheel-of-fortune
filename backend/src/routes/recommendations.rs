@@ -43,6 +43,18 @@ pub struct RecommendationRequest {
     pub earnings_calendar: Option<Vec<EarningsCalendar>>,
     /// Analyst recommendation trends per ticker (from the frontend).
     pub analyst_trends: Option<Vec<AnalystTrend>>,
+    /// Minimum open interest threshold.
+    pub min_open_interest: Option<u64>,
+    /// CC delta range.
+    pub cc_delta_min: Option<f64>,
+    pub cc_delta_max: Option<f64>,
+    /// CSP delta range.
+    pub csp_delta_min: Option<f64>,
+    pub csp_delta_max: Option<f64>,
+    /// Minimum annualised ROC (percent).
+    pub min_annualised_roc: Option<f64>,
+    /// Maximum annualised ROC (percent) — filters out suspiciously high returns.
+    pub max_annualised_roc: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -201,6 +213,16 @@ async fn get_recommendations(
     let earnings = req.earnings_calendar.unwrap_or_default();
     let analyst = req.analyst_trends.unwrap_or_default();
 
+    let filter_params = crate::strategy::wheel::FilterParams {
+        min_open_interest: req.min_open_interest,
+        cc_delta_min: req.cc_delta_min,
+        cc_delta_max: req.cc_delta_max,
+        csp_delta_min: req.csp_delta_min,
+        csp_delta_max: req.csp_delta_max,
+        min_annualised_roc: req.min_annualised_roc,
+        max_annualised_roc: req.max_annualised_roc,
+    };
+
     // Run the wheel strategy engine to get pre-computed, validated trades.
     let recommendations = evaluate_wheel(
         &inventory.holdings,
@@ -209,6 +231,7 @@ async fn get_recommendations(
         min_dte,
         max_dte,
         &earnings,
+        &filter_params,
     );
 
     // Build an LLM prompt that asks the model to rank these pre-computed trades.

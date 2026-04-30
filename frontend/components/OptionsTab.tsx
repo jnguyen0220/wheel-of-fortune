@@ -1,7 +1,32 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import type { OptionsChain, OptionsContract, EarningsCalendar } from "@/lib/types";
+import type { OptionsChain, OptionsContract, EarningsCalendar, FinancialHealth } from "@/lib/types";
+import { getFinancialHealth } from "@/lib/api";
+
+export interface StrategyFilters {
+  dte_min: number;
+  dte_max: number;
+  min_open_interest: number;
+  cc_delta_min: number;
+  cc_delta_max: number;
+  csp_delta_min: number;
+  csp_delta_max: number;
+  min_annualised_roc: number;
+  max_annualised_roc: number;
+}
+
+export const DEFAULT_FILTERS: StrategyFilters = {
+  dte_min: 14,
+  dte_max: 45,
+  min_open_interest: 100,
+  cc_delta_min: 0.20,
+  cc_delta_max: 0.35,
+  csp_delta_min: 0.20,
+  csp_delta_max: 0.35,
+  min_annualised_roc: 12,
+  max_annualised_roc: 120,
+};
 
 interface Props {
   chains: OptionsChain[];
@@ -15,17 +40,30 @@ interface Props {
   formatCash: (v: string) => string;
   cashRef: React.RefObject<HTMLInputElement | null>;
   earningsCalendar?: Record<string, EarningsCalendar[]>;
+  filters: StrategyFilters;
+  onFiltersChange: (filters: StrategyFilters) => void;
+  hasShares: boolean;
 }
 
-export default function OptionsTab({ chains, onRecommendations, recommendationsLoading, cashInput, cashEditing, onCashEditStart, onCashEditEnd, onCashChange, formatCash, cashRef, earningsCalendar }: Props) {
+export default function OptionsTab({ chains, onRecommendations, recommendationsLoading, cashInput, cashEditing, onCashEditStart, onCashEditEnd, onCashChange, formatCash, cashRef, earningsCalendar, filters, onFiltersChange, hasShares }: Props) {
   const [activeTicker, setActiveTicker] = useState<string>("");
   const [activeType, setActiveType] = useState<"CALL" | "PUT">("CALL");
   const [activeExpiration, setActiveExpiration] = useState<string>("");
+  const [healthData, setHealthData] = useState<Record<string, FinancialHealth>>({});
+  const [healthPopup, setHealthPopup] = useState<string | null>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const sortedChains = useMemo(
     () => [...chains].sort((a, b) => a.ticker.localeCompare(b.ticker)),
     [chains],
   );
+
+  useEffect(() => {
+    if (sortedChains.length > 0) {
+      const tickers = sortedChains.map((c) => c.ticker);
+      getFinancialHealth(tickers).then(setHealthData).catch(() => {});
+    }
+  }, [sortedChains]);
 
   useEffect(() => {
     if (sortedChains.length > 0 && !sortedChains.find((c) => c.ticker === activeTicker)) {
@@ -98,15 +136,31 @@ export default function OptionsTab({ chains, onRecommendations, recommendationsL
 
   return (
     <div className="space-y-4">
-      {/* ── Action bar: CSP Cash + Recommendations ── */}
+      {/* ── Strategy Engine ── */}
       <section className="bg-[#161b22] rounded-lg border border-[#30363d] overflow-hidden">
-        <div className="px-4 py-3 flex items-center justify-between flex-wrap gap-3">
+        {/* Always-visible bar: title, cash, run button, expand toggle */}
+        <div className="px-4 py-2.5 flex items-center gap-3 flex-wrap">
+          {/* Title + expand toggle */}
+          <button
+            type="button"
+            onClick={() => setFiltersOpen(!filtersOpen)}
+            className="flex items-center gap-1.5 hover:opacity-80 transition"
+          >
+            <svg className="w-3.5 h-3.5 text-[#8b949e]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
+            </svg>
+            <span className="text-[11px] font-semibold text-[#c9d1d9] tracking-wide">Strategy Engine</span>
+            <svg className={`w-3 h-3 text-[#484f58] transition-transform ${filtersOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+            </svg>
+          </button>
+
           {/* Cash for CSP */}
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider whitespace-nowrap">Cash for CSP</span>
-            {cashEditing ? (
-              <div className="relative">
-                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[#8b949e] text-xs font-bold select-none">$</span>
+          <div className="flex items-center gap-1.5 ml-auto" onClick={(e) => e.stopPropagation()}>
+            <span className="text-[10px] text-[#484f58] uppercase tracking-wider font-medium">CSP Cash</span>
+            <div className="relative">
+              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[#3fb950] text-[10px] font-bold select-none">$</span>
+              {cashEditing ? (
                 <input
                   ref={cashRef}
                   type="text"
@@ -117,29 +171,26 @@ export default function OptionsTab({ chains, onRecommendations, recommendationsL
                   onKeyDown={e => e.key === "Enter" && onCashEditEnd()}
                   autoFocus
                   placeholder="0"
-                  className="w-28 border border-[#30363d] rounded pl-5 pr-2 py-1 text-xs font-bold tabular-nums text-[#c9d1d9] bg-[#0d1117] focus:outline-none focus:ring-1 focus:ring-[#58a6ff] transition"
+                  className="w-24 border border-[#58a6ff] rounded pl-5 pr-2 py-1 text-xs font-bold tabular-nums text-[#c9d1d9] bg-[#0d1117] focus:outline-none focus:ring-1 focus:ring-[#58a6ff] transition"
                 />
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={onCashEditStart}
-                className="group flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#0d1117] border border-[#30363d] hover:border-[#8b949e] transition"
-              >
-                <span className="text-xs font-bold tabular-nums text-[#3fb950]">
-                  ${cashInput ? parseInt(cashInput, 10).toLocaleString() : "0"}
-                </span>
-                <svg className="w-3 h-3 text-[#30363d] group-hover:text-[#8b949e] transition" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487a2.1 2.1 0 112.97 2.97L8.5 18.81l-4 1 1-4 11.362-11.323z" />
-                </svg>
-              </button>
-            )}
+              ) : (
+                <button
+                  type="button"
+                  onClick={onCashEditStart}
+                  className="w-24 text-left border border-[#30363d] rounded pl-5 pr-2 py-1 text-xs font-bold tabular-nums text-[#3fb950] bg-[#0d1117] hover:border-[#8b949e] transition cursor-text"
+                >
+                  {cashInput ? parseInt(cashInput, 10).toLocaleString() : "0"}
+                </button>
+              )}
+            </div>
           </div>
+
+          {/* Run Recommendations */}
           <button
             type="button"
             onClick={onRecommendations}
-            disabled={recommendationsLoading || chains.length === 0}
-            className="shrink-0 bg-[#238636] hover:bg-[#2ea043] disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold px-3.5 py-1 rounded-md transition text-xs flex items-center gap-1.5 shadow-sm"
+            disabled={recommendationsLoading || (parseInt(cashInput || "0", 10) <= 0 && !hasShares)}
+            className="shrink-0 bg-[#21262d] border border-[#30363d] hover:border-[#8b949e] hover:bg-[#30363d] disabled:opacity-40 disabled:cursor-not-allowed text-[#c9d1d9] font-semibold px-3.5 py-1 rounded-md transition text-xs flex items-center gap-1.5"
           >
             {recommendationsLoading ? (
               <>
@@ -158,6 +209,118 @@ export default function OptionsTab({ chains, onRecommendations, recommendationsL
             )}
           </button>
         </div>
+
+        {/* Collapsible filter details */}
+        {filtersOpen && (
+          <div className="border-t border-[#21262d] px-4 py-2.5">
+            <div className="flex items-center flex-wrap gap-2">
+              <div className="flex items-center gap-1 bg-[#0d1117] border border-[#30363d] rounded-md px-2 py-1">
+                <span className="text-[10px] text-[#8b949e]">DTE</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={filters.dte_min ?? DEFAULT_FILTERS.dte_min}
+                  onChange={(e) => onFiltersChange({ ...filters, dte_min: parseInt(e.target.value) || 0 })}
+                  className="w-10 bg-transparent text-xs tabular-nums text-[#c9d1d9] text-center focus:outline-none border-b border-transparent focus:border-[#58a6ff]"
+                />
+                <span className="text-[10px] text-[#30363d]">–</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={filters.dte_max ?? DEFAULT_FILTERS.dte_max}
+                  onChange={(e) => onFiltersChange({ ...filters, dte_max: parseInt(e.target.value) || 0 })}
+                  className="w-10 bg-transparent text-xs tabular-nums text-[#c9d1d9] text-center focus:outline-none border-b border-transparent focus:border-[#58a6ff]"
+                />
+                <span className="text-[10px] text-[#484f58]">d</span>
+              </div>
+              <div className="flex items-center gap-1 bg-[#0d1117] border border-[#30363d] rounded-md px-2 py-1">
+                <span className="text-[10px] text-[#8b949e]">ROC</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={filters.min_annualised_roc ?? DEFAULT_FILTERS.min_annualised_roc}
+                  onChange={(e) => onFiltersChange({ ...filters, min_annualised_roc: parseFloat(e.target.value) || 0 })}
+                  className="w-10 bg-transparent text-xs tabular-nums text-[#c9d1d9] text-center focus:outline-none border-b border-transparent focus:border-[#58a6ff]"
+                />
+                <span className="text-[10px] text-[#30363d]">–</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={filters.max_annualised_roc ?? DEFAULT_FILTERS.max_annualised_roc}
+                  onChange={(e) => onFiltersChange({ ...filters, max_annualised_roc: parseFloat(e.target.value) || 0 })}
+                  className="w-10 bg-transparent text-xs tabular-nums text-[#c9d1d9] text-center focus:outline-none border-b border-transparent focus:border-[#58a6ff]"
+                />
+                <span className="text-[10px] text-[#484f58]">%</span>
+              </div>
+              <div className="flex items-center gap-1 bg-[#0d1117] border border-[#30363d] rounded-md px-2 py-1">
+                <span className="text-[10px] text-[#8b949e]">OI ≥</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={filters.min_open_interest ?? DEFAULT_FILTERS.min_open_interest}
+                  onChange={(e) => onFiltersChange({ ...filters, min_open_interest: parseInt(e.target.value) || 0 })}
+                  className="w-14 bg-transparent text-xs tabular-nums text-[#c9d1d9] text-center focus:outline-none border-b border-transparent focus:border-[#58a6ff]"
+                />
+              </div>
+              <div className="flex items-center gap-1 bg-[#0d1117] border border-[#30363d] rounded-md px-2 py-1">
+                <span className="text-[10px] text-[#d29922]">CC Δ</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={filters.cc_delta_min ?? DEFAULT_FILTERS.cc_delta_min}
+                  onChange={(e) => onFiltersChange({ ...filters, cc_delta_min: parseFloat(e.target.value) || 0 })}
+                  className="w-11 bg-transparent text-xs tabular-nums text-[#c9d1d9] text-center focus:outline-none border-b border-transparent focus:border-[#58a6ff]"
+                />
+                <span className="text-[10px] text-[#30363d]">–</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={filters.cc_delta_max ?? DEFAULT_FILTERS.cc_delta_max}
+                  onChange={(e) => onFiltersChange({ ...filters, cc_delta_max: parseFloat(e.target.value) || 0 })}
+                  className="w-11 bg-transparent text-xs tabular-nums text-[#c9d1d9] text-center focus:outline-none border-b border-transparent focus:border-[#58a6ff]"
+                />
+              </div>
+              <div className="flex items-center gap-1 bg-[#0d1117] border border-[#30363d] rounded-md px-2 py-1">
+                <span className="text-[10px] text-[#8b949e]">CSP Δ</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={filters.csp_delta_min ?? DEFAULT_FILTERS.csp_delta_min}
+                  onChange={(e) => onFiltersChange({ ...filters, csp_delta_min: parseFloat(e.target.value) || 0 })}
+                  className="w-11 bg-transparent text-xs tabular-nums text-[#c9d1d9] text-center focus:outline-none border-b border-transparent focus:border-[#58a6ff]"
+                />
+                <span className="text-[10px] text-[#30363d]">–</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={filters.csp_delta_max ?? DEFAULT_FILTERS.csp_delta_max}
+                  onChange={(e) => onFiltersChange({ ...filters, csp_delta_max: parseFloat(e.target.value) || 0 })}
+                  className="w-11 bg-transparent text-xs tabular-nums text-[#c9d1d9] text-center focus:outline-none border-b border-transparent focus:border-[#58a6ff]"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => onFiltersChange(DEFAULT_FILTERS)}
+                className="ml-1 text-[10px] text-[#484f58] hover:text-[#c9d1d9] transition"
+                title="Reset to defaults"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        )}
       </section>
 
       {/* ── Ticker tabs + summary stats ── */}
@@ -165,19 +328,28 @@ export default function OptionsTab({ chains, onRecommendations, recommendationsL
         <div className="px-4 py-3 flex items-center justify-between flex-wrap gap-3">
           {/* Ticker selector */}
           <div className="flex items-center gap-2">
-            {sortedChains.map((chain) => (
+            {sortedChains.map((chain) => {
+              const erDays = (earningsCalendar?.[chain.ticker] ?? []).find(e => e.days_until >= 0)?.days_until;
+              const erDot = erDays !== undefined && erDays <= 14;
+              const erColor = erDays !== undefined && erDays <= 7 ? "bg-[#f85149]" : "bg-[#d29922]";
+              return (
               <button
                 key={chain.ticker}
                 onClick={() => { setActiveTicker(chain.ticker); setActiveExpiration(""); }}
-                className={`px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all ${
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all ${
                   activeTicker === chain.ticker
-                    ? "bg-[#58a6ff] text-white shadow-sm shadow-[#58a6ff30]"
+                    ? "bg-[#30363d] text-[#c9d1d9] ring-1 ring-[#484f58]"
                     : "bg-[#21262d] text-[#8b949e] hover:text-[#c9d1d9] hover:bg-[#30363d] border border-[#30363d]"
                 }`}
+                title={erDot ? `Earnings in ${erDays}d` : undefined}
               >
                 {chain.ticker}
+                {erDot && (
+                  <span className={`inline-block w-1.5 h-1.5 rounded-full animate-pulse opacity-90 ${erColor}`} />
+                )}
               </button>
-            ))}
+              );
+            })}
           </div>
 
           {/* Stats pills */}
@@ -188,17 +360,27 @@ export default function OptionsTab({ chains, onRecommendations, recommendationsL
                 <span className="text-xs font-bold text-[#c9d1d9] tabular-nums">${underlying.toFixed(2)}</span>
               </div>
               {(() => {
+                const health = healthData[activeTicker];
+                if (!health) return null;
+                const scoreColor = health.health_score >= 80 ? "text-[#3fb950]" : health.health_score >= 65 ? "text-[#56d364]" : health.health_score >= 45 ? "text-[#d29922]" : health.health_score >= 25 ? "text-[#db6d28]" : "text-[#f85149]";
+                return (
+                  <button
+                    onClick={() => setHealthPopup(activeTicker)}
+                    className="flex items-center gap-1.5 h-[30px] px-2.5 rounded-md bg-[#0d1117] border border-[#30363d] hover:border-[#8b949e] transition cursor-pointer"
+                    title="View strengths & concerns"
+                  >
+                    <span className="text-[10px] text-[#8b949e] uppercase font-medium">Health</span>
+                    <span className={`text-xs font-bold tabular-nums ${scoreColor}`}>{health.health_score}</span>
+                  </button>
+                );
+              })()}
+              {(() => {
                 const total = activeChain.contracts.length;
-                const { label, color, dot } = total >= 500
-                  ? { label: "High", color: "text-[#3fb950]", dot: "bg-[#3fb950]" }
-                  : total >= 200
-                  ? { label: "Med", color: "text-[#d29922]", dot: "bg-[#d29922]" }
-                  : { label: "Low", color: "text-[#f85149]", dot: "bg-[#f85149]" };
+                const color = total >= 500 ? "text-[#3fb950]" : total >= 200 ? "text-[#d29922]" : "text-[#f85149]";
                 return (
                   <div className="flex items-center gap-1.5 h-[30px] px-2.5 rounded-md bg-[#0d1117] border border-[#30363d]" title={`${total} contracts available`}>
-                    <span className={`inline-block w-1.5 h-1.5 rounded-full ${dot}`} />
-                    <span className={`text-[10px] uppercase font-medium ${color}`}>{label}</span>
-                    <span className="text-xs font-medium text-[#8b949e] tabular-nums">{total}</span>
+                    <span className="text-[10px] text-[#8b949e] uppercase font-medium">Activity</span>
+                    <span className={`text-xs font-bold tabular-nums ${color}`}>{total}</span>
                   </div>
                 );
               })()}
@@ -207,11 +389,9 @@ export default function OptionsTab({ chains, onRecommendations, recommendationsL
                 const next = erDates.find(e => e.days_until >= 0) ?? erDates[0];
                 if (!next || next.days_until < 0) return null;
                 return (
-                  <div className="flex items-center gap-1.5 h-[30px] px-2.5 rounded-md bg-[#d2992210] border border-[#d2992240]">
-                    <svg className="w-3 h-3 text-[#d29922]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
-                    </svg>
-                    <span className="text-[10px] font-medium text-[#d29922]">ER in {next.days_until}d</span>
+                  <div className="flex items-center gap-1.5 h-[30px] px-2.5 rounded-md bg-[#0d1117] border border-[#30363d]">
+                    <span className="text-[10px] text-[#8b949e] uppercase font-medium">ER</span>
+                    <span className={`text-xs font-bold tabular-nums ${next.days_until <= 7 ? "text-[#f85149]" : next.days_until <= 14 ? "text-[#d29922]" : "text-[#8b949e]"}`}>{next.days_until === 0 ? "TODAY" : `${next.days_until}d`}</span>
                   </div>
                 );
               })()}
@@ -412,6 +592,73 @@ export default function OptionsTab({ chains, onRecommendations, recommendationsL
             </table>
           </div>
         </section>
+      )}
+
+      {/* Health popup */}
+      {healthPopup && healthData[healthPopup] && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setHealthPopup(null)}>
+          <div className="bg-[#161b22] border border-[#30363d] rounded-lg shadow-xl max-w-md w-full mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-3 border-b border-[#21262d]">
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-bold text-[#c9d1d9]">{healthPopup}</span>
+                <span className={`text-xs font-bold tabular-nums ${
+                  healthData[healthPopup].health_score >= 80 ? "text-[#3fb950]" : healthData[healthPopup].health_score >= 65 ? "text-[#56d364]" : healthData[healthPopup].health_score >= 45 ? "text-[#d29922]" : healthData[healthPopup].health_score >= 25 ? "text-[#db6d28]" : "text-[#f85149]"
+                }`}>
+                  {healthData[healthPopup].health_score}/100 · {healthData[healthPopup].verdict}
+                </span>
+              </div>
+              <button onClick={() => setHealthPopup(null)} className="text-[#484f58] hover:text-[#c9d1d9] transition">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="px-5 py-4 max-h-[60vh] overflow-y-auto">
+              {(healthData[healthPopup].strengths.length > 0 || healthData[healthPopup].concerns.length > 0) ? (
+                <div className="space-y-4">
+                  {healthData[healthPopup].strengths.length > 0 && (
+                    <div>
+                      <h4 className="text-[10px] font-semibold text-[#3fb950] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                        </svg>
+                        Strengths
+                      </h4>
+                      <ul className="space-y-1.5">
+                        {healthData[healthPopup].strengths.map((s, i) => (
+                          <li key={i} className="text-xs text-[#c9d1d9] flex items-start gap-2 leading-relaxed">
+                            <span className="text-[#3fb950] mt-0.5 shrink-0">•</span>
+                            {s}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {healthData[healthPopup].concerns.length > 0 && (
+                    <div>
+                      <h4 className="text-[10px] font-semibold text-[#d29922] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                        </svg>
+                        Concerns
+                      </h4>
+                      <ul className="space-y-1.5">
+                        {healthData[healthPopup].concerns.map((c, i) => (
+                          <li key={i} className="text-xs text-[#c9d1d9] flex items-start gap-2 leading-relaxed">
+                            <span className="text-[#d29922] mt-0.5 shrink-0">•</span>
+                            {c}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-xs text-[#484f58] italic">No strengths or concerns identified.</p>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

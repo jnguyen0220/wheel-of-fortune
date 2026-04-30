@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import type { StockHolding, StockHoldingInput, StockMarketData, EarningsCalendar, EarningsResult, AnalystTrend } from "@/lib/types";
-import { addHolding, deleteHolding, getMarketData, getEarningsCalendar, getEarningsHistory, getAnalystTrends } from "@/lib/api";
+import type { StockHolding, StockHoldingInput, StockMarketData, EarningsCalendar, EarningsResult, AnalystTrend, FinancialHealth } from "@/lib/types";
+import { addHolding, deleteHolding, getMarketData, getEarningsCalendar, getEarningsHistory, getAnalystTrends, getFinancialHealth } from "@/lib/api";
 
 interface Props {
   holdings: StockHolding[];
@@ -42,19 +42,23 @@ export default function InventoryForm({
   const [importError, setImportError] = useState<string | null>(null);
   const [earningsData, setEarningsData] = useState<Record<string, { calendar: EarningsCalendar[]; history: EarningsResult[] }>>({});
   const [analystTrends, setAnalystTrends] = useState<Record<string, AnalystTrend[]>>({});
+  const [healthData, setHealthData] = useState<Record<string, FinancialHealth>>({});
+  const [healthPopup, setHealthPopup] = useState<string | null>(null);
 
   const refreshMarketData = useCallback(async () => {
     const allTickers = [...new Set(holdings.map((h) => h.ticker))].sort();
     if (allTickers.length === 0) return;
     setLoadingMarket(true);
     try {
-      const [data, calendar, history, trends] = await Promise.all([
+      const [data, calendar, history, trends, health] = await Promise.all([
         getMarketData(allTickers),
         getEarningsCalendar(allTickers).catch(() => ({} as Record<string, EarningsCalendar[]>)),
         getEarningsHistory(allTickers).catch(() => ({} as Record<string, EarningsResult[]>)),
         getAnalystTrends(allTickers).catch(() => ({} as Record<string, AnalystTrend[]>)),
+        getFinancialHealth(allTickers).catch(() => ({} as Record<string, FinancialHealth>)),
       ]);
       setMarketData(data);
+      setHealthData(health);
       const merged: Record<string, { calendar: EarningsCalendar[]; history: EarningsResult[] }> = {};
       for (const t of allTickers) {
         merged[t] = { calendar: calendar[t] ?? [], history: history[t] ?? [] };
@@ -380,6 +384,7 @@ export default function InventoryForm({
               <thead>
                 <tr className="border-b border-[#30363d]">
                   <th className="px-3 py-2 text-left text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">Ticker</th>
+                  <th className="px-3 py-2 text-right text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider whitespace-nowrap">Health</th>
                   <th className="px-3 py-2 text-center text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">Type</th>
                   <th className="px-3 py-2 text-right text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">Shares</th>
                   <th className="px-3 py-2 text-right text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">Avg Cost</th>
@@ -396,7 +401,7 @@ export default function InventoryForm({
                 </tr>
               </thead>
               <tbody>
-                {holdings.map((h, idx) => {
+                {[...holdings].sort((a, b) => a.ticker.localeCompare(b.ticker)).map((h, idx) => {
                   const md = marketData[h.ticker];
                   const price = md?.price ?? h.current_price;
                   const pnlPct =
@@ -410,6 +415,22 @@ export default function InventoryForm({
                     <tr key={h.id} className="group hover:bg-[#1c2128] transition-colors">
                       <td className={`px-3 py-2.5 ${rowBorder}`}>
                         <span className="font-bold text-[#c9d1d9] tracking-wider uppercase">{h.ticker}</span>
+                      </td>
+                      <td className={`px-3 py-2.5 text-right ${rowBorder}`}>
+                        {(() => {
+                          const health = healthData[h.ticker];
+                          if (!health) return <span className="text-[#484f58] text-[10px]">—</span>;
+                          const color = health.health_score >= 80 ? "text-[#3fb950]" : health.health_score >= 65 ? "text-[#56d364]" : health.health_score >= 45 ? "text-[#d29922]" : health.health_score >= 25 ? "text-[#db6d28]" : "text-[#f85149]";
+                          return (
+                            <button
+                              onClick={() => setHealthPopup(h.ticker)}
+                              className={`text-[10px] font-bold tabular-nums ${color} hover:underline cursor-pointer`}
+                              title="View strengths & concerns"
+                            >
+                              {health.health_score}
+                            </button>
+                          );
+                        })()}
                       </td>
                       <td className={`px-3 py-2.5 text-center ${rowBorder}`}>
                         {h.shares === 0 ? (
@@ -538,6 +559,73 @@ export default function InventoryForm({
           </div>
         )}
       </div>
+
+      {/* Health popup */}
+      {healthPopup && healthData[healthPopup] && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setHealthPopup(null)}>
+          <div className="bg-[#161b22] border border-[#30363d] rounded-lg shadow-xl max-w-md w-full mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-3 border-b border-[#21262d]">
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-bold text-[#c9d1d9]">{healthPopup}</span>
+                <span className={`text-xs font-bold tabular-nums ${
+                  healthData[healthPopup].health_score >= 80 ? "text-[#3fb950]" : healthData[healthPopup].health_score >= 65 ? "text-[#56d364]" : healthData[healthPopup].health_score >= 45 ? "text-[#d29922]" : healthData[healthPopup].health_score >= 25 ? "text-[#db6d28]" : "text-[#f85149]"
+                }`}>
+                  {healthData[healthPopup].health_score}/100 · {healthData[healthPopup].verdict}
+                </span>
+              </div>
+              <button onClick={() => setHealthPopup(null)} className="text-[#484f58] hover:text-[#c9d1d9] transition">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="px-5 py-4 max-h-[60vh] overflow-y-auto">
+              {(healthData[healthPopup].strengths.length > 0 || healthData[healthPopup].concerns.length > 0) ? (
+                <div className="space-y-4">
+                  {healthData[healthPopup].strengths.length > 0 && (
+                    <div>
+                      <h4 className="text-[10px] font-semibold text-[#3fb950] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                        </svg>
+                        Strengths
+                      </h4>
+                      <ul className="space-y-1.5">
+                        {healthData[healthPopup].strengths.map((s, i) => (
+                          <li key={i} className="text-xs text-[#c9d1d9] flex items-start gap-2 leading-relaxed">
+                            <span className="text-[#3fb950] mt-0.5 shrink-0">•</span>
+                            {s}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {healthData[healthPopup].concerns.length > 0 && (
+                    <div>
+                      <h4 className="text-[10px] font-semibold text-[#d29922] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                        </svg>
+                        Concerns
+                      </h4>
+                      <ul className="space-y-1.5">
+                        {healthData[healthPopup].concerns.map((c, i) => (
+                          <li key={i} className="text-xs text-[#c9d1d9] flex items-start gap-2 leading-relaxed">
+                            <span className="text-[#d29922] mt-0.5 shrink-0">•</span>
+                            {c}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-xs text-[#484f58] italic">No strengths or concerns identified.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

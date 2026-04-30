@@ -18,6 +18,8 @@ import {
 import InventoryForm from "./InventoryForm";
 import LlmAnalysis from "./LlmAnalysis";
 import OptionsTab from "./OptionsTab";
+import type { StrategyFilters } from "./OptionsTab";
+import { DEFAULT_FILTERS } from "./OptionsTab";
 
 export default function WheelAdvisor() {
   const [holdings, setHoldings] = useState<StockHolding[]>([]);
@@ -51,6 +53,9 @@ export default function WheelAdvisor() {
   const [activeTab, setActiveTab] = useState<"inventory" | "options" | "ai">(
     "inventory",
   );
+
+  // Strategy filters (editable in Options tab)
+  const [filters, setFilters] = useState<StrategyFilters>(DEFAULT_FILTERS);
 
   // Ollama model list — fetched once, passed to LlmAnalysis
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
@@ -118,11 +123,8 @@ export default function WheelAdvisor() {
         tickers,
         available_cash: availableCash > 0 ? availableCash : undefined,
         chains: optionsChains.length > 0 ? optionsChains : undefined,
-        ...(() => {
-          const dtes = optionsChains.flatMap(c => c.contracts.map(ct => ct.dte));
-          if (dtes.length === 0) return {};
-          return { dte_min: Math.min(...dtes), dte_max: Math.max(...dtes) };
-        })(),
+        dte_min: filters.dte_min,
+        dte_max: filters.dte_max,
         // Flatten earnings calendar and analyst trends for LLM context
         earnings_calendar: Object.values(earningsCalendar).flat().length > 0
           ? Object.values(earningsCalendar).flat()
@@ -130,6 +132,14 @@ export default function WheelAdvisor() {
         analyst_trends: Object.values(analystTrends).flat().length > 0
           ? Object.values(analystTrends).flat()
           : undefined,
+        // Strategy filters
+        min_open_interest: filters.min_open_interest,
+        cc_delta_min: filters.cc_delta_min,
+        cc_delta_max: filters.cc_delta_max,
+        csp_delta_min: filters.csp_delta_min,
+        csp_delta_max: filters.csp_delta_max,
+        min_annualised_roc: filters.min_annualised_roc,
+        max_annualised_roc: filters.max_annualised_roc,
       });
       setLlmPrompt(result.llm_prompt);
       setRecommendations(result.recommendations ?? []);
@@ -218,11 +228,14 @@ export default function WheelAdvisor() {
               formatCash={formatLive}
               cashRef={cashRef}
               earningsCalendar={earningsCalendar}
+              filters={filters}
+              onFiltersChange={setFilters}
+              hasShares={holdings.reduce((sum, h) => sum + h.shares, 0) > 0}
             />
           </div>
 
           <div className={activeTab === "ai" ? "" : "hidden"}>
-            {llmPrompt && <LlmAnalysis prompt={llmPrompt} recommendations={recommendations} ollamaModels={ollamaModels} ollamaModelsLoading={ollamaModelsLoading} earningsCalendar={earningsCalendar} earningsHistory={earningsHistory} analystTrends={analystTrends} tickersWithoutOptions={tickersWithoutOptions} />}
+            {llmPrompt && <LlmAnalysis prompt={llmPrompt} recommendations={recommendations} ollamaModels={ollamaModels} ollamaModelsLoading={ollamaModelsLoading} earningsCalendar={earningsCalendar} earningsHistory={earningsHistory} analystTrends={analystTrends} tickersWithoutOptions={tickersWithoutOptions} filters={filters} />}
           </div>
         </div>
       </div>

@@ -102,6 +102,13 @@ export interface RecommendationRequest {
   chains?: OptionsChain[];
   earnings_calendar?: EarningsCalendar[];
   analyst_trends?: AnalystTrend[];
+  min_open_interest?: number;
+  cc_delta_min?: number;
+  cc_delta_max?: number;
+  csp_delta_min?: number;
+  csp_delta_max?: number;
+  min_annualised_roc?: number;
+  max_annualised_roc?: number;
 }
 
 // ── Earnings types ───────────────────────────────────────────────────────────
@@ -140,4 +147,32 @@ export interface AnalystTrend {
   hold: number;
   sell: number;
   strong_sell: number;
+}
+
+// ── Financial health types ────────────────────────────────────────────────────
+
+export interface FinancialHealth {
+  ticker: string;
+  revenue: number | null;
+  revenue_growth: number | null;
+  net_income: number | null;
+  profit_margin: number | null;
+  operating_margin: number | null;
+  earnings_per_share: number | null;
+  total_cash: number | null;
+  total_debt: number | null;
+  debt_to_equity: number | null;
+  current_ratio: number | null;
+  return_on_equity: number | null;
+  return_on_assets: number | null;
+  free_cash_flow: number | null;
+  operating_cash_flow: number | null;
+  trailing_pe: number | null;
+  forward_pe: number | null;
+  price_to_book: number | null;
+  peg_ratio: number | null;
+  health_score: number;
+  verdict: string;
+  strengths: string[];
+  concerns: string[];
 }

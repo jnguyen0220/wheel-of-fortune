@@ -741,6 +741,8 @@ struct QuoteSummaryResult {
     calendar_events: Option<YahooCalendarEvents>,
     earnings_history: Option<YahooEarningsHistoryOuter>,
     recommendation_trend: Option<YahooRecommendationTrend>,
+    financial_data: Option<YahooFinancialData>,
+    default_key_statistics: Option<YahooKeyStatistics>,
 }
 
 /// Fetch upcoming earnings date(s) for a single ticker from Yahoo Finance.
@@ -948,4 +950,109 @@ pub async fn fetch_recommendation_trend(
         .collect();
 
     Ok(out)
+}
+
+// ── Financial health data ─────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct YahooFinancialData {
+    total_revenue: Option<YahooNumeric>,
+    revenue_growth: Option<YahooNumeric>,
+    net_income_to_common: Option<YahooNumeric>,
+    profit_margins: Option<YahooNumeric>,
+    operating_margins: Option<YahooNumeric>,
+    total_cash: Option<YahooNumeric>,
+    total_debt: Option<YahooNumeric>,
+    debt_to_equity: Option<YahooNumeric>,
+    current_ratio: Option<YahooNumeric>,
+    return_on_equity: Option<YahooNumeric>,
+    return_on_assets: Option<YahooNumeric>,
+    free_cashflow: Option<YahooNumeric>,
+    operating_cashflow: Option<YahooNumeric>,
+    earnings_growth: Option<YahooNumeric>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct YahooKeyStatistics {
+    trailing_eps: Option<YahooNumeric>,
+    forward_pe: Option<YahooNumeric>,
+    trailing_pe: Option<YahooNumeric>,
+    price_to_book: Option<YahooNumeric>,
+    peg_ratio: Option<YahooNumeric>,
+}
+
+/// Fetch financial health metrics for a single ticker from Yahoo Finance.
+///
+/// Uses the `financialData` and `defaultKeyStatistics` quoteSummary modules.
+#[instrument(skip(client, crumb))]
+pub async fn fetch_financial_health(
+    client: &Client,
+    crumb: &str,
+    ticker: &str,
+) -> Result<crate::models::FinancialHealth> {
+    let url = format!(
+        "https://query1.finance.yahoo.com/v10/finance/quoteSummary/{ticker}?modules=financialData,defaultKeyStatistics&crumb={crumb}",
+        ticker = ticker.to_uppercase(),
+    );
+
+    let resp = client
+        .get(&url)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .context("Failed to fetch financial data")?;
+
+    if !resp.status().is_success() {
+        anyhow::bail!(
+            "Yahoo Finance returned HTTP {} for financial data of {}",
+            resp.status(),
+            ticker
+        );
+    }
+
+    let envelope: QuoteSummaryEnvelope = resp
+        .json()
+        .await
+        .context("Failed to parse financial data JSON")?;
+
+    let result = envelope
+        .quote_summary
+        .and_then(|qs| qs.result)
+        .and_then(|r| r.into_iter().next())
+        .context("Yahoo Finance returned empty result for financial data")?;
+
+    let fd = result.financial_data;
+    let ks = result.default_key_statistics;
+
+    let mut health = crate::models::FinancialHealth {
+        ticker: ticker.to_uppercase(),
+        revenue: fd.as_ref().and_then(|f| f.total_revenue.as_ref()).and_then(|v| v.raw),
+        revenue_growth: fd.as_ref().and_then(|f| f.revenue_growth.as_ref()).and_then(|v| v.raw),
+        net_income: fd.as_ref().and_then(|f| f.net_income_to_common.as_ref()).and_then(|v| v.raw),
+        profit_margin: fd.as_ref().and_then(|f| f.profit_margins.as_ref()).and_then(|v| v.raw),
+        operating_margin: fd.as_ref().and_then(|f| f.operating_margins.as_ref()).and_then(|v| v.raw),
+        earnings_per_share: ks.as_ref().and_then(|k| k.trailing_eps.as_ref()).and_then(|v| v.raw),
+        total_cash: fd.as_ref().and_then(|f| f.total_cash.as_ref()).and_then(|v| v.raw),
+        total_debt: fd.as_ref().and_then(|f| f.total_debt.as_ref()).and_then(|v| v.raw),
+        debt_to_equity: fd.as_ref().and_then(|f| f.debt_to_equity.as_ref()).and_then(|v| v.raw),
+        current_ratio: fd.as_ref().and_then(|f| f.current_ratio.as_ref()).and_then(|v| v.raw),
+        return_on_equity: fd.as_ref().and_then(|f| f.return_on_equity.as_ref()).and_then(|v| v.raw),
+        return_on_assets: fd.as_ref().and_then(|f| f.return_on_assets.as_ref()).and_then(|v| v.raw),
+        free_cash_flow: fd.as_ref().and_then(|f| f.free_cashflow.as_ref()).and_then(|v| v.raw),
+        operating_cash_flow: fd.as_ref().and_then(|f| f.operating_cashflow.as_ref()).and_then(|v| v.raw),
+        trailing_pe: ks.as_ref().and_then(|k| k.trailing_pe.as_ref()).and_then(|v| v.raw),
+        forward_pe: ks.as_ref().and_then(|k| k.forward_pe.as_ref()).and_then(|v| v.raw),
+        price_to_book: ks.as_ref().and_then(|k| k.price_to_book.as_ref()).and_then(|v| v.raw),
+        peg_ratio: ks.as_ref().and_then(|k| k.peg_ratio.as_ref()).and_then(|v| v.raw),
+        health_score: 0,
+        verdict: String::new(),
+        strengths: Vec::new(),
+        concerns: Vec::new(),
+    };
+
+    crate::models::compute_health_score(&mut health);
+
+    Ok(health)
 }

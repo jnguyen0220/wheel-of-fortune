@@ -9,6 +9,7 @@ import type {
   EarningsResult,
   AnalystTrend,
   OptionsChain,
+  FinancialHealth,
 } from "./types";
 
 // Use relative paths - Next.js will proxy to backend via rewrites
@@ -118,5 +119,16 @@ export async function getOptionsChains(
   const params = tickers.join(",");
   return apiFetch<OptionsChain[]>(
     `/api/options?tickers=${encodeURIComponent(params)}`,
+  );
+}
+
+// ── Financial Health API ─────────────────────────────────────────────────────
+
+export async function getFinancialHealth(
+  tickers: string[],
+): Promise<Record<string, FinancialHealth>> {
+  const params = tickers.join(",");
+  return apiFetch<Record<string, FinancialHealth>>(
+    `/api/financials?tickers=${encodeURIComponent(params)}`,
   );
 }

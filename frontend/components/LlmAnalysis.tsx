@@ -2,7 +2,9 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
-import type { LlmPrompt, ChatMessage, WheelRecommendation, EarningsCalendar, EarningsResult, AnalystTrend } from "@/lib/types";
+import type { LlmPrompt, ChatMessage, WheelRecommendation, EarningsCalendar, EarningsResult, AnalystTrend, FinancialHealth } from "@/lib/types";
+import { getFinancialHealth } from "@/lib/api";
+import type { StrategyFilters } from "./OptionsTab";
 
 type Provider = "openai" | "ollama";
 const OPENAI_MODELS = ["gpt-4o", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"];
@@ -17,6 +19,7 @@ interface Props {
   earningsHistory?: Record<string, EarningsResult[]>;
   analystTrends?: Record<string, AnalystTrend[]>;
   tickersWithoutOptions?: string[];
+  filters?: StrategyFilters;
 }
 
 interface StrategicAnalysis {
@@ -96,6 +99,8 @@ function TradesTable({ ccTrades, cspTrades, earningsCalendar, earningsHistory, a
   const [showScoreInfo, setShowScoreInfo] = useState(false);
   const scoreBtnRef = useRef<HTMLButtonElement>(null);
   const [scorePos, setScorePos] = useState<{ top: number; right: number } | null>(null);
+  const [healthData, setHealthData] = useState<Record<string, FinancialHealth>>({});
+  const [healthPopup, setHealthPopup] = useState<string | null>(null);
 
   // Get all unique tickers across CC and CSP, sorted alphabetically
   const allTickers = React.useMemo(() => {
@@ -111,6 +116,13 @@ function TradesTable({ ccTrades, cspTrades, earningsCalendar, earningsHistory, a
       setActiveTicker(allTickers[0]);
     }
   }, [allTickers, activeTicker]);
+
+  // Fetch health data
+  React.useEffect(() => {
+    if (allTickers.length > 0) {
+      getFinancialHealth(allTickers).then(setHealthData).catch(() => {});
+    }
+  }, [allTickers]);
 
   // Trades for active ticker
   const tickerCC = React.useMemo(() =>
@@ -158,19 +170,28 @@ function TradesTable({ ccTrades, cspTrades, earningsCalendar, earningsHistory, a
       {/* ── Ticker tabs + stats (like Options page) ── */}
       <div className="px-4 py-3 flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-2">
-          {allTickers.map((ticker) => (
+          {allTickers.map((ticker) => {
+              const erDays = (earningsCalendar?.[ticker] ?? []).find(e => e.days_until >= 0)?.days_until;
+              const erDot = erDays !== undefined && erDays <= 14;
+              const erColor = erDays !== undefined && erDays <= 7 ? "bg-[#f85149]" : "bg-[#d29922]";
+              return (
               <button
                 key={ticker}
                 onClick={() => setActiveTicker(ticker)}
-                className={`px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all ${
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all ${
                   activeTicker === ticker
-                    ? "bg-[#58a6ff] text-white shadow-sm shadow-[#58a6ff30]"
+                    ? "bg-[#30363d] text-[#c9d1d9] ring-1 ring-[#484f58]"
                     : "bg-[#21262d] text-[#8b949e] hover:text-[#c9d1d9] hover:bg-[#30363d] border border-[#30363d]"
                 }`}
+                title={erDot ? `Earnings in ${erDays}d` : undefined}
               >
                 {ticker}
+                {erDot && (
+                  <span className={`inline-block w-1.5 h-1.5 rounded-full animate-pulse opacity-90 ${erColor}`} />
+                )}
               </button>
-            ))}
+              );
+            })}
         </div>
 
         {/* Stats pills */}
@@ -179,14 +200,32 @@ function TradesTable({ ccTrades, cspTrades, earningsCalendar, earningsHistory, a
             <span className="text-[10px] text-[#8b949e] uppercase font-medium">Last</span>
             <span className="text-xs font-bold text-[#c9d1d9] tabular-nums">${underlying.toFixed(2)}</span>
           </div>
-          {nextEarnings && nextEarnings.days_until >= 0 && (
-            <div className="flex items-center gap-1.5 h-[30px] px-2.5 rounded-md bg-[#d2992210] border border-[#d2992240]">
-              <svg className="w-3 h-3 text-[#d29922]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
-              </svg>
-              <span className="text-[10px] font-medium text-[#d29922]">ER in {nextEarnings.days_until}d</span>
-            </div>
-          )}
+          {(() => {
+            const health = healthData[activeTicker];
+            if (!health) return null;
+            const scoreColor = health.health_score >= 80 ? "text-[#3fb950]" : health.health_score >= 65 ? "text-[#56d364]" : health.health_score >= 45 ? "text-[#d29922]" : health.health_score >= 25 ? "text-[#db6d28]" : "text-[#f85149]";
+            return (
+              <button
+                onClick={() => setHealthPopup(activeTicker)}
+                className="flex items-center gap-1.5 h-[30px] px-2.5 rounded-md bg-[#0d1117] border border-[#30363d] hover:border-[#8b949e] transition cursor-pointer"
+                title="View strengths & concerns"
+              >
+                <span className="text-[10px] text-[#8b949e] uppercase font-medium">Health</span>
+                <span className={`text-xs font-bold tabular-nums ${scoreColor}`}>{health.health_score}</span>
+              </button>
+            );
+          })()}
+          {(() => {
+            const erDates = earningsCalendar?.[activeTicker] ?? [];
+            const next = erDates.find(e => e.days_until >= 0) ?? erDates[0];
+            if (!next || next.days_until < 0) return null;
+            return (
+              <div className="flex items-center gap-1.5 h-[30px] px-2.5 rounded-md bg-[#0d1117] border border-[#30363d]">
+                <span className="text-[10px] text-[#8b949e] uppercase font-medium">ER</span>
+                <span className={`text-xs font-bold tabular-nums ${next.days_until <= 7 ? "text-[#f85149]" : next.days_until <= 14 ? "text-[#d29922]" : "text-[#8b949e]"}`}>{next.days_until === 0 ? "TODAY" : `${next.days_until}d`}</span>
+              </div>
+            );
+          })()}
           {lastResult && (
             <div className={`flex items-center gap-1.5 h-[30px] px-2.5 rounded-md border ${lastResult.beat ? "bg-[#3fb95010] border-[#3fb95040]" : "bg-[#f8514910] border-[#f8514940]"}`}>
               <span className={`text-[10px] font-medium ${lastResult.beat ? "text-[#3fb950]" : "text-[#f85149]"}`}>
@@ -252,6 +291,12 @@ function TradesTable({ ccTrades, cspTrades, earningsCalendar, earningsHistory, a
               <th className="px-2 py-2 text-right">Qty</th>
               <th className="px-2 py-2 text-left">Expiry</th>
               <th className="px-2 py-2 text-right">DTE</th>
+              <th className="px-2 py-2 text-right" title="Estimated date to close at 50% profit (theta decay curve)">
+                <span className="text-[#3fb950]">↗</span> 50%
+              </th>
+              <th className="px-2 py-2 text-right" title="Estimated date to close at 80% profit (theta decay curve)">
+                <span className="text-[#3fb950]">↗</span> 80%
+              </th>
               <th className="px-2 py-2 text-right">Mid</th>
               <th className="px-2 py-2 text-right">Premium</th>
               <th className="px-2 py-2 text-right">ROC</th>
@@ -326,7 +371,6 @@ function TradesTable({ ccTrades, cspTrades, earningsCalendar, earningsHistory, a
               const contracts = rec.contracts_allocated;
               const totalPremium = mid * contracts * 100;
               const collateral = rec.contract.strike * contracts * 100;
-              const spansEarnings = rec.earnings_warning || (nextEarnings && nextEarnings.days_until >= 0 && nextEarnings.days_until < rec.contract.dte);
 
               return (
                 <tr
@@ -342,13 +386,25 @@ function TradesTable({ ccTrades, cspTrades, earningsCalendar, earningsHistory, a
                     </td>
                     <td className="px-2 py-1.5 tabular-nums text-[#8b949e]">{rec.contract.expiration}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums">
-                      {spansEarnings ? (
-                        <span className="text-[#d29922] font-medium" title={nextEarnings ? `Earnings ${nextEarnings.earnings_date} (${nextEarnings.days_until}d)` : 'Spans upcoming earnings'}>
-                          {rec.contract.dte}d<span className="text-[8px] ml-px">⚠</span>
-                        </span>
-                      ) : (
-                        <span className="text-[#8b949e]">{rec.contract.dte}d</span>
-                      )}
+                      <span className="text-[#8b949e]">{rec.contract.dte}d</span>
+                    </td>
+                    <td className="px-2 py-1.5 text-right" title="Close at 50% profit">
+                      {(() => { const d = Math.round(rec.contract.dte * (1 - Math.pow(1 - 0.5, 2))); const dt = new Date(); dt.setDate(dt.getDate() + d); return (
+                        <div className="leading-tight">
+                          <span className="text-[#c9d1d9] tabular-nums font-medium text-xs">{dt.toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+                          <br />
+                          <span className="text-[9px] text-[#484f58] tabular-nums">{d}d</span>
+                        </div>
+                      ); })()}
+                    </td>
+                    <td className="px-2 py-1.5 text-right" title="Close at 80% profit">
+                      {(() => { const d = Math.round(rec.contract.dte * (1 - Math.pow(1 - 0.8, 2))); const dt = new Date(); dt.setDate(dt.getDate() + d); return (
+                        <div className="leading-tight">
+                          <span className="text-[#c9d1d9] tabular-nums font-medium text-xs">{dt.toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+                          <br />
+                          <span className="text-[9px] text-[#484f58] tabular-nums">{d}d</span>
+                        </div>
+                      ); })()}
                     </td>
                     <td className="px-2 py-1.5 text-right text-[#8b949e] tabular-nums">${mid.toFixed(2)}</td>
                     <td className="px-2 py-1.5 text-right font-semibold text-[#3fb950] tabular-nums" title={`$${mid.toFixed(2)} × ${contracts} × 100`}>
@@ -376,11 +432,78 @@ function TradesTable({ ccTrades, cspTrades, earningsCalendar, earningsHistory, a
         </table>
       </div>
       )}
+
+      {/* Health popup */}
+      {healthPopup && healthData[healthPopup] && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setHealthPopup(null)}>
+          <div className="bg-[#161b22] border border-[#30363d] rounded-lg shadow-xl max-w-md w-full mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-3 border-b border-[#21262d]">
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-bold text-[#c9d1d9]">{healthPopup}</span>
+                <span className={`text-xs font-bold tabular-nums ${
+                  healthData[healthPopup].health_score >= 80 ? "text-[#3fb950]" : healthData[healthPopup].health_score >= 65 ? "text-[#56d364]" : healthData[healthPopup].health_score >= 45 ? "text-[#d29922]" : healthData[healthPopup].health_score >= 25 ? "text-[#db6d28]" : "text-[#f85149]"
+                }`}>
+                  {healthData[healthPopup].health_score}/100 · {healthData[healthPopup].verdict}
+                </span>
+              </div>
+              <button onClick={() => setHealthPopup(null)} className="text-[#484f58] hover:text-[#c9d1d9] transition">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="px-5 py-4 max-h-[60vh] overflow-y-auto">
+              {(healthData[healthPopup].strengths.length > 0 || healthData[healthPopup].concerns.length > 0) ? (
+                <div className="space-y-4">
+                  {healthData[healthPopup].strengths.length > 0 && (
+                    <div>
+                      <h4 className="text-[10px] font-semibold text-[#3fb950] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                        </svg>
+                        Strengths
+                      </h4>
+                      <ul className="space-y-1.5">
+                        {healthData[healthPopup].strengths.map((s, i) => (
+                          <li key={i} className="text-xs text-[#c9d1d9] flex items-start gap-2 leading-relaxed">
+                            <span className="text-[#3fb950] mt-0.5 shrink-0">•</span>
+                            {s}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {healthData[healthPopup].concerns.length > 0 && (
+                    <div>
+                      <h4 className="text-[10px] font-semibold text-[#d29922] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                        </svg>
+                        Concerns
+                      </h4>
+                      <ul className="space-y-1.5">
+                        {healthData[healthPopup].concerns.map((c, i) => (
+                          <li key={i} className="text-xs text-[#c9d1d9] flex items-start gap-2 leading-relaxed">
+                            <span className="text-[#d29922] mt-0.5 shrink-0">•</span>
+                            {c}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-xs text-[#484f58] italic">No strengths or concerns identified.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-export default function LlmAnalysis({ prompt, recommendations, ollamaModels, ollamaModelsLoading, earningsCalendar = {}, earningsHistory = {}, analystTrends = {}, tickersWithoutOptions = [] }: Props) {
+export default function LlmAnalysis({ prompt, recommendations, ollamaModels, ollamaModelsLoading, earningsCalendar = {}, earningsHistory = {}, analystTrends = {}, tickersWithoutOptions = [], filters }: Props) {
   const [provider, setProvider] = useState<Provider>("ollama");
   const [model, setModel] = useState(() => ollamaModels[0] ?? "");
   const [apiKey, setApiKey] = useState("");
@@ -629,45 +752,36 @@ export default function LlmAnalysis({ prompt, recommendations, ollamaModels, oll
         {/* Selection Criteria */}
         {showCriteria && (
           <div className="mb-4 rounded border border-[#30363d] bg-[#0d1117] overflow-hidden">
-              {/* Hard Filters */}
+              {/* Strategy Filters (read-only) */}
+              {filters && (
               <div className="px-4 py-3 border-b border-[#21262d]">
-                <p className="text-[10px] font-semibold text-[#c9d1d9] uppercase tracking-wider mb-2">Hard Filters</p>
-                <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-[10px]">
-                  <div className="flex justify-between">
-                    <span className="text-[#8b949e]">DTE range</span>
-                    <span className="text-[#c9d1d9] tabular-nums font-medium">14 – 45 days</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-[#8b949e]">Min open interest</span>
-                    <span className="text-[#c9d1d9] tabular-nums font-medium">100</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-[#8b949e]">CC delta</span>
-                    <span className="text-[#c9d1d9] tabular-nums font-medium">0.20 – 0.35</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-[#8b949e]">CSP delta</span>
-                    <span className="text-[#c9d1d9] tabular-nums font-medium">0.20 – 0.35</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-[#8b949e]">CC strike</span>
-                    <span className="text-[#c9d1d9] font-medium">Above underlying</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-[#8b949e]">CSP strike</span>
-                    <span className="text-[#c9d1d9] font-medium">Below underlying</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-[#8b949e]">Min annualized ROC</span>
-                    <span className="text-[#c9d1d9] tabular-nums font-medium">12%</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-[#8b949e]">Earnings warning</span>
-                    <span className="text-[#c9d1d9] tabular-nums font-medium">14 days</span>
-                  </div>
+                <p className="text-[10px] font-semibold text-[#c9d1d9] uppercase tracking-wider mb-2">Strategy Filters</p>
+                <div className="flex items-center flex-wrap gap-2">
+                  <span className="inline-flex items-center gap-1 bg-[#161b22] border border-[#30363d] rounded-md px-2 py-0.5 text-[10px]">
+                    <span className="text-[#8b949e]">DTE</span>
+                    <span className="text-[#c9d1d9] tabular-nums font-medium">{filters.dte_min}–{filters.dte_max}</span>
+                    <span className="text-[#484f58]">d</span>
+                  </span>
+                  <span className="inline-flex items-center gap-1 bg-[#161b22] border border-[#30363d] rounded-md px-2 py-0.5 text-[10px]">
+                    <span className="text-[#8b949e]">ROC</span>
+                    <span className="text-[#c9d1d9] tabular-nums font-medium">{filters.min_annualised_roc}–{filters.max_annualised_roc}</span>
+                    <span className="text-[#484f58]">%</span>
+                  </span>
+                  <span className="inline-flex items-center gap-1 bg-[#161b22] border border-[#30363d] rounded-md px-2 py-0.5 text-[10px]">
+                    <span className="text-[#8b949e]">OI ≥</span>
+                    <span className="text-[#c9d1d9] tabular-nums font-medium">{filters.min_open_interest.toLocaleString()}</span>
+                  </span>
+                  <span className="inline-flex items-center gap-1 bg-[#161b22] border border-[#30363d] rounded-md px-2 py-0.5 text-[10px]">
+                    <span className="text-[#d29922]">CC Δ</span>
+                    <span className="text-[#c9d1d9] tabular-nums font-medium">{filters.cc_delta_min}–{filters.cc_delta_max}</span>
+                  </span>
+                  <span className="inline-flex items-center gap-1 bg-[#161b22] border border-[#30363d] rounded-md px-2 py-0.5 text-[10px]">
+                    <span className="text-[#58a6ff]">CSP Δ</span>
+                    <span className="text-[#c9d1d9] tabular-nums font-medium">{filters.csp_delta_min}–{filters.csp_delta_max}</span>
+                  </span>
                 </div>
-                <p className="text-[9px] text-[#484f58] mt-2">Relaxed fallback (delta 0.10–0.50, OI ≥ 5, ROC ≥ 5%) applies when no strict matches found.</p>
               </div>
+              )}
               {/* Quality Score */}
               <div className="px-4 py-3 border-b border-[#21262d]">
                 <p className="text-[10px] font-semibold text-[#c9d1d9] uppercase tracking-wider mb-2">Quality Score (0–100)</p>
