@@ -237,14 +237,10 @@ export default function InventoryForm({
             </div>
             <span className="text-[10px] text-[#484f58] font-medium whitespace-nowrap pb-2">× 100 =</span>
             <div className="min-w-[80px] w-24">
-              <label className="block text-[10px] font-medium text-[#8b949e] uppercase tracking-wider mb-1">Shares</label>
-              <input
-                type="text"
-                disabled
-                value={form.lots && parseInt(form.lots, 10) > 0 ? `${parseInt(form.lots, 10) * 100}` : "0"}
-                className="w-24 border border-[#21262d] rounded px-3 py-2 text-xs text-[#484f58] bg-[#0d1117] cursor-default"
-                tabIndex={-1}
-              />
+              <label className="block text-[10px] font-medium text-[#8b949e] uppercase tracking-wider mb-1">Quantity</label>
+              <div className="w-24 border border-[#21262d] rounded px-3 py-2 text-xs text-[#484f58] bg-[#0d1117] cursor-default tabular-nums">
+                {(parseInt(form.lots, 10) || 0) * 100}
+              </div>
             </div>
             <div className="flex-1 min-w-[130px]">
               <label className="block text-[10px] font-medium text-[#8b949e] uppercase tracking-wider mb-1">Avg Cost ($)</label>
@@ -386,7 +382,7 @@ export default function InventoryForm({
                   <th className="px-3 py-2 text-left text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">Ticker</th>
                   <th className="px-3 py-2 text-right text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider whitespace-nowrap">Health</th>
                   <th className="px-3 py-2 text-center text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">Type</th>
-                  <th className="px-3 py-2 text-right text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">Shares</th>
+                  <th className="px-3 py-2 text-right text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">Qty</th>
                   <th className="px-3 py-2 text-right text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">Avg Cost</th>
                   <th className="px-3 py-2 text-right text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider whitespace-nowrap">
                     Price
@@ -440,7 +436,7 @@ export default function InventoryForm({
                         )}
                       </td>
                       <td className={`px-3 py-2.5 text-right tabular-nums text-[#c9d1d9] font-medium ${rowBorder}`}>
-                        {h.shares.toLocaleString()}
+                        {h.shares / 100}<span className="text-[8px] text-[#484f58] ml-0.5">×100</span>
                       </td>
                       <td className={`px-3 py-2.5 text-right tabular-nums text-[#8b949e] ${rowBorder}`}>
                         ${h.cost_basis.toFixed(2)}

@@ -810,7 +810,7 @@ export default function LlmAnalysis({ prompt, recommendations, ollamaModels, oll
                   <div>
                     <p className="text-[#58a6ff] font-medium mb-1">Covered Calls</p>
                     <ul className="text-[#8b949e] space-y-0.5 list-none">
-                      <li>Requires ≥ 100 shares held</li>
+                      <li>Requires ≥ 1×100 quantity held</li>
                       <li>Up to 3 strike/DTE tiers for diversification</li>
                       <li>Lot allocation: 40 / 40 / 20 split</li>
                       <li>Diversity bonus for spread across strikes & DTEs</li>

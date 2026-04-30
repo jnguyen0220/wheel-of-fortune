@@ -162,26 +162,8 @@ pub fn evaluate_wheel(
                 })
                 .collect();
 
-            // ── Relaxed CC fallback ─────────────────────────────────────────
-            // Widens delta range, lowers OI floor and ROC bar so every ticker
-            // with ≥ 100 shares always gets at least one CC recommendation.
             if cc_qualified.is_empty() {
-                tracing::debug!(ticker = %chain.ticker, "CC strict pass = 0, trying relaxed filters");
-                cc_qualified = chain
-                    .contracts
-                    .iter()
-                    .filter(|c| {
-                        c.option_type == OptionType::Call
-                            && c.dte >= min_dte
-                            && c.dte <= max_dte
-                            && c.delta.abs() >= 0.10
-                            && c.delta.abs() <= 0.50
-                            && c.open_interest >= 5
-                            && c.strike > chain.underlying_price
-                            && c.cc_return_on_capital() >= 5.0
-                    })
-                    .collect();
-                tracing::debug!(ticker = %chain.ticker, count = cc_qualified.len(), "CC relaxed pass");
+                tracing::debug!(ticker = %chain.ticker, "CC strict pass = 0, no contracts match filters");
             }
 
             cc_qualified.sort_by(|a, b| {
@@ -237,14 +219,6 @@ pub fn evaluate_wheel(
         contract: OptionsContract,
     }
 
-    // Total premium achievable given full available cash (used for ranking).
-    let compute_tp = |c: &OptionsContract| -> f64 {
-        let n = if available_cash.is_finite() && available_cash > 0.0 {
-            (available_cash / (c.strike * 100.0)).floor().max(1.0)
-        } else { 1.0 };
-        n * c.mid_price() * 100.0
-    };
-
     let mut all_csp: Vec<CspEntry> = Vec::new();
 
     for chain in chains {
@@ -288,36 +262,7 @@ pub fn evaluate_wheel(
                 });
             }
         } else {
-            // ── Relaxed fallback ────────────────────────────────────────────
-            // Ensures every ticker is represented.  Widens delta range, lowers OI
-            // floor, and lowers ROC bar — critical for small/illiquid stocks where
-            // standard thresholds eliminate all candidates.
-            tracing::debug!(ticker = %chain.ticker, "CSP strict pass = 0, trying relaxed filters");
-            let relaxed: Vec<OptionsContract> = chain.contracts.iter()
-                .filter(|c| {
-                    c.option_type == OptionType::Put
-                        && c.dte >= min_dte && c.dte <= max_dte
-                        && c.delta.abs() >= 0.10 && c.delta.abs() <= 0.50
-                        && c.open_interest >= 5
-                        && c.strike < chain.underlying_price
-                        && c.csp_return_on_capital() >= 5.0
-                })
-                .cloned()
-                .collect();
-
-            tracing::debug!(ticker = %chain.ticker, count = relaxed.len(), "CSP relaxed pass");
-
-            // From relaxed candidates, keep only the one with the best total premium.
-            if let Some(best) = relaxed.into_iter().max_by(|a, b|
-                compute_tp(a).partial_cmp(&compute_tp(b)).unwrap_or(std::cmp::Ordering::Equal)
-            ) {
-                all_csp.push(CspEntry {
-                    ticker: chain.ticker.clone(),
-                    shares_held,
-                    holding_note: holding_note.clone(),
-                    contract: best,
-                });
-            }
+            tracing::debug!(ticker = %chain.ticker, "CSP strict pass = 0, no contracts match filters");
         }
     }
 
