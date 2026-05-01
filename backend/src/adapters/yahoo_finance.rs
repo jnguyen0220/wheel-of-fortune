@@ -971,6 +971,9 @@ struct YahooFinancialData {
     free_cashflow: Option<YahooNumeric>,
     operating_cashflow: Option<YahooNumeric>,
     earnings_growth: Option<YahooNumeric>,
+    current_price: Option<YahooNumeric>,
+    target_mean_price: Option<YahooNumeric>,
+    number_of_analyst_opinions: Option<YahooNumeric>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1055,4 +1058,96 @@ pub async fn fetch_financial_health(
     crate::models::compute_health_score(&mut health);
 
     Ok(health)
+}
+
+// ── Screener / undervalue data ────────────────────────────────────────────────
+
+/// Fetch valuation data for a single ticker to determine if it's undervalued.
+///
+/// Uses `financialData` and `defaultKeyStatistics` modules — same request as
+/// financial health but extracts valuation-specific fields including analyst
+/// target price.
+#[instrument(skip(client, crumb))]
+pub async fn fetch_screener_data(
+    client: &Client,
+    crumb: &str,
+    ticker: &str,
+) -> Result<crate::models::ScreenerCandidate> {
+    let url = format!(
+        "https://query1.finance.yahoo.com/v10/finance/quoteSummary/{ticker}?modules=financialData,defaultKeyStatistics&crumb={crumb}",
+        ticker = ticker.to_uppercase(),
+    );
+
+    let resp = client
+        .get(&url)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .context("Failed to fetch screener data")?;
+
+    if !resp.status().is_success() {
+        anyhow::bail!(
+            "Yahoo Finance returned HTTP {} for screener data of {}",
+            resp.status(),
+            ticker
+        );
+    }
+
+    let envelope: QuoteSummaryEnvelope = resp
+        .json()
+        .await
+        .context("Failed to parse screener data JSON")?;
+
+    let result = envelope
+        .quote_summary
+        .and_then(|qs| qs.result)
+        .and_then(|r| r.into_iter().next())
+        .context("Yahoo Finance returned empty result for screener data")?;
+
+    let fd = result.financial_data;
+    let ks = result.default_key_statistics;
+
+    let current_price = fd.as_ref()
+        .and_then(|f| f.current_price.as_ref())
+        .and_then(|v| v.raw)
+        .unwrap_or(0.0);
+
+    let target_price = fd.as_ref()
+        .and_then(|f| f.target_mean_price.as_ref())
+        .and_then(|v| v.raw);
+
+    let upside_percent = target_price.and_then(|tp| {
+        if current_price > 0.0 {
+            Some(((tp - current_price) / current_price) * 100.0)
+        } else {
+            None
+        }
+    });
+
+    let analyst_count = fd.as_ref()
+        .and_then(|f| f.number_of_analyst_opinions.as_ref())
+        .and_then(|v| v.raw)
+        .map(|n| n as u32);
+
+    let mut candidate = crate::models::ScreenerCandidate {
+        ticker: ticker.to_uppercase(),
+        current_price,
+        target_price,
+        upside_percent,
+        forward_pe: ks.as_ref().and_then(|k| k.forward_pe.as_ref()).and_then(|v| v.raw),
+        trailing_pe: ks.as_ref().and_then(|k| k.trailing_pe.as_ref()).and_then(|v| v.raw),
+        peg_ratio: ks.as_ref().and_then(|k| k.peg_ratio.as_ref()).and_then(|v| v.raw),
+        price_to_book: ks.as_ref().and_then(|k| k.price_to_book.as_ref()).and_then(|v| v.raw),
+        profit_margin: fd.as_ref().and_then(|f| f.profit_margins.as_ref()).and_then(|v| v.raw),
+        revenue_growth: fd.as_ref().and_then(|f| f.revenue_growth.as_ref()).and_then(|v| v.raw),
+        debt_to_equity: fd.as_ref().and_then(|f| f.debt_to_equity.as_ref()).and_then(|v| v.raw),
+        free_cash_flow: fd.as_ref().and_then(|f| f.free_cashflow.as_ref()).and_then(|v| v.raw),
+        analyst_count,
+        value_score: 0,
+        reasons: Vec::new(),
+    };
+
+    crate::models::compute_value_score(&mut candidate);
+
+    Ok(candidate)
 }

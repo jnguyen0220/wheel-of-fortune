@@ -10,6 +10,7 @@ import type {
   AnalystTrend,
   OptionsChain,
   FinancialHealth,
+  ScreenerCandidate,
 } from "./types";
 
 // Use relative paths - Next.js will proxy to backend via rewrites
@@ -131,4 +132,21 @@ export async function getFinancialHealth(
   return apiFetch<Record<string, FinancialHealth>>(
     `/api/financials?tickers=${encodeURIComponent(params)}`,
   );
+}
+
+// ── Screener API ─────────────────────────────────────────────────────────────
+
+export async function getScreenerCandidates(
+  tickers?: string[],
+  minScore?: number,
+): Promise<ScreenerCandidate[]> {
+  const params = new URLSearchParams();
+  if (tickers && tickers.length > 0) {
+    params.set("tickers", tickers.join(","));
+  }
+  if (minScore !== undefined) {
+    params.set("min_score", minScore.toString());
+  }
+  const qs = params.toString();
+  return apiFetch<ScreenerCandidate[]>(`/api/screener${qs ? `?${qs}` : ""}`);
 }

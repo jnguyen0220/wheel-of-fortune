@@ -176,3 +176,23 @@ export interface FinancialHealth {
   strengths: string[];
   concerns: string[];
 }
+
+// ── Screener types ────────────────────────────────────────────────────────────
+
+export interface ScreenerCandidate {
+  ticker: string;
+  current_price: number;
+  target_price: number | null;
+  upside_percent: number | null;
+  forward_pe: number | null;
+  trailing_pe: number | null;
+  peg_ratio: number | null;
+  price_to_book: number | null;
+  profit_margin: number | null;
+  revenue_growth: number | null;
+  debt_to_equity: number | null;
+  free_cash_flow: number | null;
+  analyst_count: number | null;
+  value_score: number;
+  reasons: string[];
+}

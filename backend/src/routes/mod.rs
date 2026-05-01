@@ -6,6 +6,7 @@ pub mod market_data;
 pub mod options;
 pub mod prices;
 pub mod recommendations;
+pub mod screener;
 
 use axum::{routing::get, Router};
 use std::sync::Arc;
@@ -32,4 +33,5 @@ fn api_routes(state: Arc<AppState>) -> Router {
         .nest("/earnings", earnings::router())
         .nest("/analyst-trends", analyst::router())
         .nest("/financials", financials::router())
+        .nest("/screener", screener::router())
 }

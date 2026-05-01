@@ -14,10 +14,12 @@ import {
   getInventory,
   getOptionsChains,
   getRecommendations,
+  addHolding,
 } from "@/lib/api";
 import InventoryForm from "./InventoryForm";
 import LlmAnalysis from "./LlmAnalysis";
 import OptionsTab from "./OptionsTab";
+import Screener from "./Screener";
 import type { StrategyFilters } from "./OptionsTab";
 import { DEFAULT_FILTERS } from "./OptionsTab";
 
@@ -213,6 +215,15 @@ export default function WheelAdvisor() {
               onEarningsLoaded={(cal, hist) => { setEarningsCalendar(cal); setEarningsHistory(hist); }}
               onAnalystTrendsLoaded={setAnalystTrends}
             />
+
+            <div className="mt-5">
+              <Screener onAddTicker={async (ticker) => {
+                try {
+                  await addHolding({ ticker, shares: 0, cost_basis: 0, current_price: 0 });
+                  refreshInventory();
+                } catch { /* ignore duplicates */ }
+              }} />
+            </div>
           </div>
 
           <div className={activeTab === "options" ? "" : "hidden"}>
