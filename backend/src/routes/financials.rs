@@ -42,16 +42,27 @@ async fn get_financials(Query(query): Query<TickersQuery>) -> impl IntoResponse 
         }
     };
 
-    let mut result: HashMap<String, FinancialHealth> = HashMap::new();
+    let tasks: Vec<_> = tickers
+        .into_iter()
+        .map(|ticker| {
+            let client = client.clone();
+            let crumb = crumb.clone();
+            tokio::spawn(async move {
+                match fetch_financial_health(&client, &crumb, &ticker).await {
+                    Ok(data) => Some((ticker, data)),
+                    Err(e) => {
+                        warn!(ticker = %ticker, error = %e, "Failed to fetch financial health");
+                        None
+                    }
+                }
+            })
+        })
+        .collect();
 
-    for ticker in &tickers {
-        match fetch_financial_health(&client, &crumb, ticker).await {
-            Ok(data) => {
-                result.insert(ticker.clone(), data);
-            }
-            Err(e) => {
-                warn!(ticker = %ticker, error = %e, "Failed to fetch financial health");
-            }
+    let mut result: HashMap<String, FinancialHealth> = HashMap::new();
+    for task in tasks {
+        if let Ok(Some((ticker, data))) = task.await {
+            result.insert(ticker, data);
         }
     }
 

@@ -47,16 +47,27 @@ async fn get_earnings_calendar(
         }
     };
 
-    let mut result: HashMap<String, Vec<EarningsCalendar>> = HashMap::new();
+    let tasks: Vec<_> = tickers
+        .into_iter()
+        .map(|ticker| {
+            let client = client.clone();
+            let crumb = crumb.clone();
+            tokio::spawn(async move {
+                match fetch_earnings_calendar(&client, &crumb, &ticker).await {
+                    Ok(data) => Some((ticker, data)),
+                    Err(e) => {
+                        warn!(ticker = %ticker, error = %e, "Failed to fetch earnings calendar");
+                        None
+                    }
+                }
+            })
+        })
+        .collect();
 
-    for ticker in &tickers {
-        match fetch_earnings_calendar(&client, &crumb, ticker).await {
-            Ok(data) => {
-                result.insert(ticker.clone(), data);
-            }
-            Err(e) => {
-                warn!(ticker = %ticker, error = %e, "Failed to fetch earnings calendar");
-            }
+    let mut result: HashMap<String, Vec<EarningsCalendar>> = HashMap::new();
+    for task in tasks {
+        if let Ok(Some((ticker, data))) = task.await {
+            result.insert(ticker, data);
         }
     }
 
@@ -82,16 +93,27 @@ async fn get_earnings_history(
         }
     };
 
-    let mut result: HashMap<String, Vec<EarningsResult>> = HashMap::new();
+    let tasks: Vec<_> = tickers
+        .into_iter()
+        .map(|ticker| {
+            let client = client.clone();
+            let crumb = crumb.clone();
+            tokio::spawn(async move {
+                match fetch_earnings_history(&client, &crumb, &ticker).await {
+                    Ok(data) => Some((ticker, data)),
+                    Err(e) => {
+                        warn!(ticker = %ticker, error = %e, "Failed to fetch earnings history");
+                        None
+                    }
+                }
+            })
+        })
+        .collect();
 
-    for ticker in &tickers {
-        match fetch_earnings_history(&client, &crumb, ticker).await {
-            Ok(data) => {
-                result.insert(ticker.clone(), data);
-            }
-            Err(e) => {
-                warn!(ticker = %ticker, error = %e, "Failed to fetch earnings history");
-            }
+    let mut result: HashMap<String, Vec<EarningsResult>> = HashMap::new();
+    for task in tasks {
+        if let Ok(Some((ticker, data))) = task.await {
+            result.insert(ticker, data);
         }
     }
 

@@ -44,16 +44,27 @@ async fn get_analyst_trends(
         }
     };
 
-    let mut result: HashMap<String, Vec<AnalystTrend>> = HashMap::new();
+    let tasks: Vec<_> = tickers
+        .into_iter()
+        .map(|ticker| {
+            let client = client.clone();
+            let crumb = crumb.clone();
+            tokio::spawn(async move {
+                match fetch_recommendation_trend(&client, &crumb, &ticker).await {
+                    Ok(data) => Some((ticker, data)),
+                    Err(e) => {
+                        warn!(ticker = %ticker, error = %e, "Failed to fetch analyst trends");
+                        None
+                    }
+                }
+            })
+        })
+        .collect();
 
-    for ticker in &tickers {
-        match fetch_recommendation_trend(&client, &crumb, ticker).await {
-            Ok(data) => {
-                result.insert(ticker.clone(), data);
-            }
-            Err(e) => {
-                warn!(ticker = %ticker, error = %e, "Failed to fetch analyst trends");
-            }
+    let mut result: HashMap<String, Vec<AnalystTrend>> = HashMap::new();
+    for task in tasks {
+        if let Ok(Some((ticker, data))) = task.await {
+            result.insert(ticker, data);
         }
     }
 

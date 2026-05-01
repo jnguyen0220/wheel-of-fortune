@@ -38,20 +38,26 @@ async fn get_market_data(
         .filter(|t| !t.is_empty())
         .collect();
 
-    let mut result: HashMap<String, StockMarketData> = HashMap::new();
+    let tasks: Vec<_> = tickers
+        .into_iter()
+        .map(|ticker| {
+            let provider = Arc::clone(&state.options_provider);
+            tokio::spawn(async move {
+                match provider.fetch_stock_market_data(&ticker).await {
+                    Ok(data) => Some((ticker, data)),
+                    Err(e) => {
+                        warn!(ticker = %ticker, error = %e, "Failed to fetch market data");
+                        None
+                    }
+                }
+            })
+        })
+        .collect();
 
-    for ticker in &tickers {
-        match state
-            .options_provider
-            .fetch_stock_market_data(ticker)
-            .await
-        {
-            Ok(data) => {
-                result.insert(ticker.clone(), data);
-            }
-            Err(e) => {
-                warn!(ticker = %ticker, error = %e, "Failed to fetch market data");
-            }
+    let mut result: HashMap<String, StockMarketData> = HashMap::new();
+    for task in tasks {
+        if let Ok(Some((ticker, data))) = task.await {
+            result.insert(ticker, data);
         }
     }
 

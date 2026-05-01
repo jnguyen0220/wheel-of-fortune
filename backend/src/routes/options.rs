@@ -36,15 +36,11 @@ async fn get_options(
         .filter(|t| !t.is_empty())
         .collect();
 
-    let mut chains = Vec::new();
-    for ticker in &tickers {
-        match state.options_provider.fetch_options_chain(ticker).await {
-            Ok(chain) => chains.push(chain),
-            Err(e) => {
-                warn!(ticker = %ticker, error = %e, "Failed to fetch options chain");
-            }
+    match state.options_provider.fetch_options_chains(&tickers).await {
+        Ok(chains) => Json(chains),
+        Err(e) => {
+            warn!(error = %e, "Failed to fetch any options chains");
+            Json(Vec::new())
         }
     }
-
-    Json(chains)
 }
