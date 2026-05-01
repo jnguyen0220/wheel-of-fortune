@@ -20,10 +20,10 @@ export const DEFAULT_FILTERS: StrategyFilters = {
   dte_min: 14,
   dte_max: 45,
   min_open_interest: 100,
-  cc_delta_min: 0.20,
-  cc_delta_max: 0.35,
-  csp_delta_min: 0.20,
-  csp_delta_max: 0.35,
+  cc_delta_min: 20,
+  cc_delta_max: 35,
+  csp_delta_min: 20,
+  csp_delta_max: 35,
   min_annualised_roc: 12,
   max_annualised_roc: 120,
 };
@@ -269,8 +269,8 @@ export default function OptionsTab({ chains, onRecommendations, recommendationsL
                 <input
                   type="number"
                   min={0}
-                  max={1}
-                  step={0.01}
+                  max={100}
+                  step={1}
                   value={filters.cc_delta_min ?? DEFAULT_FILTERS.cc_delta_min}
                   onChange={(e) => onFiltersChange({ ...filters, cc_delta_min: parseFloat(e.target.value) || 0 })}
                   className="w-11 bg-transparent text-xs tabular-nums text-[#c9d1d9] text-center focus:outline-none border-b border-transparent focus:border-[#58a6ff]"
@@ -279,20 +279,21 @@ export default function OptionsTab({ chains, onRecommendations, recommendationsL
                 <input
                   type="number"
                   min={0}
-                  max={1}
-                  step={0.01}
+                  max={100}
+                  step={1}
                   value={filters.cc_delta_max ?? DEFAULT_FILTERS.cc_delta_max}
                   onChange={(e) => onFiltersChange({ ...filters, cc_delta_max: parseFloat(e.target.value) || 0 })}
                   className="w-11 bg-transparent text-xs tabular-nums text-[#c9d1d9] text-center focus:outline-none border-b border-transparent focus:border-[#58a6ff]"
                 />
+                <span className="text-[10px] text-[#484f58]">%</span>
               </div>
               <div className="flex items-center gap-1 bg-[#0d1117] border border-[#30363d] rounded-md px-2 py-1">
                 <span className="text-[10px] text-[#8b949e]">CSP Δ</span>
                 <input
                   type="number"
                   min={0}
-                  max={1}
-                  step={0.01}
+                  max={100}
+                  step={1}
                   value={filters.csp_delta_min ?? DEFAULT_FILTERS.csp_delta_min}
                   onChange={(e) => onFiltersChange({ ...filters, csp_delta_min: parseFloat(e.target.value) || 0 })}
                   className="w-11 bg-transparent text-xs tabular-nums text-[#c9d1d9] text-center focus:outline-none border-b border-transparent focus:border-[#58a6ff]"
@@ -301,12 +302,13 @@ export default function OptionsTab({ chains, onRecommendations, recommendationsL
                 <input
                   type="number"
                   min={0}
-                  max={1}
-                  step={0.01}
+                  max={100}
+                  step={1}
                   value={filters.csp_delta_max ?? DEFAULT_FILTERS.csp_delta_max}
                   onChange={(e) => onFiltersChange({ ...filters, csp_delta_max: parseFloat(e.target.value) || 0 })}
                   className="w-11 bg-transparent text-xs tabular-nums text-[#c9d1d9] text-center focus:outline-none border-b border-transparent focus:border-[#58a6ff]"
                 />
+                <span className="text-[10px] text-[#484f58]">%</span>
               </div>
               <button
                 type="button"

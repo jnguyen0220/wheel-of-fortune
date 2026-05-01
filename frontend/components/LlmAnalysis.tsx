@@ -773,11 +773,11 @@ export default function LlmAnalysis({ prompt, recommendations, ollamaModels, oll
                   </span>
                   <span className="inline-flex items-center gap-1 bg-[#161b22] border border-[#30363d] rounded-md px-2 py-0.5 text-[10px]">
                     <span className="text-[#d29922]">CC Δ</span>
-                    <span className="text-[#c9d1d9] tabular-nums font-medium">{filters.cc_delta_min}–{filters.cc_delta_max}</span>
+                    <span className="text-[#c9d1d9] tabular-nums font-medium">{filters.cc_delta_min}–{filters.cc_delta_max}%</span>
                   </span>
                   <span className="inline-flex items-center gap-1 bg-[#161b22] border border-[#30363d] rounded-md px-2 py-0.5 text-[10px]">
                     <span className="text-[#58a6ff]">CSP Δ</span>
-                    <span className="text-[#c9d1d9] tabular-nums font-medium">{filters.csp_delta_min}–{filters.csp_delta_max}</span>
+                    <span className="text-[#c9d1d9] tabular-nums font-medium">{filters.csp_delta_min}–{filters.csp_delta_max}%</span>
                   </span>
                 </div>
               </div>
