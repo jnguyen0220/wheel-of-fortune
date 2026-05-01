@@ -3,12 +3,16 @@
 import { useState } from "react";
 import type { ScreenerCandidate } from "@/lib/types";
 import { getScreenerCandidates } from "@/lib/api";
+import TickerLink from "./TickerLink";
 
 interface Props {
   onAddTicker: (ticker: string) => void;
+  onAddTickers: (tickers: string[]) => void;
+  onRemoveTicker?: (ticker: string) => void;
+  existingTickers?: string[];
 }
 
-export default function Screener({ onAddTicker }: Props) {
+export default function Screener({ onAddTicker, onAddTickers, onRemoveTicker, existingTickers = [] }: Props) {
   const [candidates, setCandidates] = useState<ScreenerCandidate[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -108,6 +112,11 @@ export default function Screener({ onAddTicker }: Props) {
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-[#30363d]">
+                  <th className="px-2 py-2 w-8">
+                    <svg className="w-3.5 h-3.5 text-[#8b949e] mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 0 0-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 0 0-16.536-1.84M7.5 14.25 5.106 5.272M6 20.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm12.75 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z" />
+                    </svg>
+                  </th>
                   <th className="px-2 py-2 text-left text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">Ticker</th>
                   <th className="px-2 py-2 text-right text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">Price</th>
                   <th className="px-2 py-2 text-right text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">Target</th>
@@ -117,7 +126,6 @@ export default function Screener({ onAddTicker }: Props) {
                   <th className="px-2 py-2 text-right text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">P/B</th>
                   <th className="px-2 py-2 text-right text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">Score</th>
                   <th className="px-2 py-2 text-left text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">Why</th>
-                  <th className="px-2 py-2 w-8" />
                 </tr>
               </thead>
               <tbody>
@@ -128,7 +136,18 @@ export default function Screener({ onAddTicker }: Props) {
                   return (
                     <tr key={c.ticker} className="group hover:bg-[#1c2128] transition-colors">
                       <td className={`px-2 py-2 ${rowBorder}`}>
-                        <span className="font-bold text-[#c9d1d9] tracking-wider uppercase">{c.ticker}</span>
+                        <input
+                          type="checkbox"
+                          checked={existingTickers.map(t => t.toUpperCase()).includes(c.ticker.toUpperCase())}
+                          onChange={() => {
+                            const inCart = existingTickers.map(t => t.toUpperCase()).includes(c.ticker.toUpperCase());
+                            inCart ? onRemoveTicker?.(c.ticker) : onAddTicker(c.ticker);
+                          }}
+                          className="rounded border-[#30363d] bg-[#0d1117] text-[#3fb950] focus:ring-[#3fb950] focus:ring-offset-0 w-3.5 h-3.5"
+                        />
+                      </td>
+                      <td className={`px-2 py-2 ${rowBorder}`}>
+                        <TickerLink ticker={c.ticker} className="font-bold text-[#58a6ff] tracking-wider uppercase hover:underline cursor-pointer" />
                       </td>
                       <td className={`px-2 py-2 text-right tabular-nums text-[#c9d1d9] ${rowBorder}`}>
                         ${c.current_price.toFixed(2)}
@@ -176,18 +195,6 @@ export default function Screener({ onAddTicker }: Props) {
                             </span>
                           ))}
                         </div>
-                      </td>
-                      <td className={`px-2 py-2 ${rowBorder}`}>
-                        <button
-                          type="button"
-                          onClick={() => onAddTicker(c.ticker)}
-                          className="opacity-0 group-hover:opacity-100 transition-opacity text-[#58a6ff] hover:text-[#79c0ff] text-[10px] font-medium"
-                          title={`Add ${c.ticker} to portfolio`}
-                        >
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                          </svg>
-                        </button>
                       </td>
                     </tr>
                   );

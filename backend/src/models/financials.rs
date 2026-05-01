@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FinancialHealth {
     pub ticker: String,
+    /// Full company name (e.g. "Apple Inc.").
+    pub name: Option<String>,
 
     // ── Profitability ─────────────────────────────────────────────────────────
     /// Trailing-twelve-month revenue (USD).

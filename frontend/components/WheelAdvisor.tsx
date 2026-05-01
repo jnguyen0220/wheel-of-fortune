@@ -14,12 +14,11 @@ import {
   getInventory,
   getOptionsChains,
   getRecommendations,
-  addHolding,
 } from "@/lib/api";
 import InventoryForm from "./InventoryForm";
 import LlmAnalysis from "./LlmAnalysis";
 import OptionsTab from "./OptionsTab";
-import Screener from "./Screener";
+import { HealthPopupProvider } from "./HealthPopupContext";
 import type { StrategyFilters } from "./OptionsTab";
 import { DEFAULT_FILTERS } from "./OptionsTab";
 
@@ -136,10 +135,10 @@ export default function WheelAdvisor() {
           : undefined,
         // Strategy filters
         min_open_interest: filters.min_open_interest,
-        cc_delta_min: filters.cc_delta_min / 100,
-        cc_delta_max: filters.cc_delta_max / 100,
-        csp_delta_min: filters.csp_delta_min / 100,
-        csp_delta_max: filters.csp_delta_max / 100,
+        cc_delta_min: filters.cc_delta_min,
+        cc_delta_max: filters.cc_delta_max,
+        csp_delta_min: filters.csp_delta_min,
+        csp_delta_max: filters.csp_delta_max,
         min_annualised_roc: filters.min_annualised_roc,
         max_annualised_roc: filters.max_annualised_roc,
       });
@@ -157,6 +156,7 @@ export default function WheelAdvisor() {
   }
 
   return (
+    <HealthPopupProvider>
     <div className="min-h-screen bg-[#0d1117]">
       {/* Header */}
       <header className="bg-[#161b22] border-b border-[#30363d] sticky top-0 z-20">
@@ -215,15 +215,6 @@ export default function WheelAdvisor() {
               onEarningsLoaded={(cal, hist) => { setEarningsCalendar(cal); setEarningsHistory(hist); }}
               onAnalystTrendsLoaded={setAnalystTrends}
             />
-
-            <div className="mt-5">
-              <Screener onAddTicker={async (ticker) => {
-                try {
-                  await addHolding({ ticker, shares: 0, cost_basis: 0, current_price: 0 });
-                  refreshInventory();
-                } catch { /* ignore duplicates */ }
-              }} />
-            </div>
           </div>
 
           <div className={activeTab === "options" ? "" : "hidden"}>
@@ -251,5 +242,6 @@ export default function WheelAdvisor() {
         </div>
       </div>
     </div>
+    </HealthPopupProvider>
   );
 }

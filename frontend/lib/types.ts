@@ -153,6 +153,7 @@ export interface AnalystTrend {
 
 export interface FinancialHealth {
   ticker: string;
+  name: string | null;
   revenue: number | null;
   revenue_growth: number | null;
   net_income: number | null;
@@ -195,4 +196,14 @@ export interface ScreenerCandidate {
   analyst_count: number | null;
   value_score: number;
   reasons: string[];
+}
+
+// ── News types ────────────────────────────────────────────────────────────────
+
+export interface NewsItem {
+  ticker: string;
+  title: string;
+  publisher: string;
+  link: string;
+  published_at: number;
 }

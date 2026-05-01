@@ -11,6 +11,7 @@ import type {
   OptionsChain,
   FinancialHealth,
   ScreenerCandidate,
+  NewsItem,
 } from "./types";
 
 // Use relative paths - Next.js will proxy to backend via rewrites
@@ -149,4 +150,15 @@ export async function getScreenerCandidates(
   }
   const qs = params.toString();
   return apiFetch<ScreenerCandidate[]>(`/api/screener${qs ? `?${qs}` : ""}`);
+}
+
+// ── News API ─────────────────────────────────────────────────────────────────
+
+export async function getNews(tickers?: string[]): Promise<NewsItem[]> {
+  const params = new URLSearchParams();
+  if (tickers && tickers.length > 0) {
+    params.set("tickers", tickers.join(","));
+  }
+  const qs = params.toString();
+  return apiFetch<NewsItem[]>(`/api/news${qs ? `?${qs}` : ""}`);
 }

@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import type { LlmPrompt, ChatMessage, WheelRecommendation, EarningsCalendar, EarningsResult, AnalystTrend, FinancialHealth } from "@/lib/types";
 import { getFinancialHealth } from "@/lib/api";
 import type { StrategyFilters } from "./OptionsTab";
+import { useHealthPopup } from "./HealthPopupContext";
 
 type Provider = "openai" | "ollama";
 const OPENAI_MODELS = ["gpt-4o", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"];
@@ -100,7 +101,7 @@ function TradesTable({ ccTrades, cspTrades, earningsCalendar, earningsHistory, a
   const scoreBtnRef = useRef<HTMLButtonElement>(null);
   const [scorePos, setScorePos] = useState<{ top: number; right: number } | null>(null);
   const [healthData, setHealthData] = useState<Record<string, FinancialHealth>>({});
-  const [healthPopup, setHealthPopup] = useState<string | null>(null);
+  const { openHealthPopup } = useHealthPopup();
 
   // Get all unique tickers across CC and CSP, sorted alphabetically
   const allTickers = React.useMemo(() => {
@@ -177,13 +178,13 @@ function TradesTable({ ccTrades, cspTrades, earningsCalendar, earningsHistory, a
               return (
               <button
                 key={ticker}
-                onClick={() => setActiveTicker(ticker)}
+                onClick={() => { if (activeTicker === ticker) { openHealthPopup(ticker); } else { setActiveTicker(ticker); } }}
                 className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all ${
                   activeTicker === ticker
-                    ? "bg-[#30363d] text-[#c9d1d9] ring-1 ring-[#484f58]"
+                    ? "bg-[#30363d] text-[#58a6ff] ring-1 ring-[#484f58]"
                     : "bg-[#21262d] text-[#8b949e] hover:text-[#c9d1d9] hover:bg-[#30363d] border border-[#30363d]"
                 }`}
-                title={erDot ? `Earnings in ${erDays}d` : undefined}
+                title={erDot ? `Earnings in ${erDays}d` : activeTicker === ticker ? "Click for health report" : undefined}
               >
                 {ticker}
                 {erDot && (
@@ -206,7 +207,7 @@ function TradesTable({ ccTrades, cspTrades, earningsCalendar, earningsHistory, a
             const scoreColor = health.health_score >= 80 ? "text-[#3fb950]" : health.health_score >= 65 ? "text-[#56d364]" : health.health_score >= 45 ? "text-[#d29922]" : health.health_score >= 25 ? "text-[#db6d28]" : "text-[#f85149]";
             return (
               <button
-                onClick={() => setHealthPopup(activeTicker)}
+                onClick={() => openHealthPopup(activeTicker)}
                 className="flex items-center gap-1.5 h-[30px] px-2.5 rounded-md bg-[#0d1117] border border-[#30363d] hover:border-[#8b949e] transition cursor-pointer"
                 title="View strengths & concerns"
               >
@@ -431,73 +432,6 @@ function TradesTable({ ccTrades, cspTrades, earningsCalendar, earningsHistory, a
           </tbody>
         </table>
       </div>
-      )}
-
-      {/* Health popup */}
-      {healthPopup && healthData[healthPopup] && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setHealthPopup(null)}>
-          <div className="bg-[#161b22] border border-[#30363d] rounded-lg shadow-xl max-w-md w-full mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-5 py-3 border-b border-[#21262d]">
-              <div className="flex items-center gap-3">
-                <span className="text-sm font-bold text-[#c9d1d9]">{healthPopup}</span>
-                <span className={`text-xs font-bold tabular-nums ${
-                  healthData[healthPopup].health_score >= 80 ? "text-[#3fb950]" : healthData[healthPopup].health_score >= 65 ? "text-[#56d364]" : healthData[healthPopup].health_score >= 45 ? "text-[#d29922]" : healthData[healthPopup].health_score >= 25 ? "text-[#db6d28]" : "text-[#f85149]"
-                }`}>
-                  {healthData[healthPopup].health_score}/100 · {healthData[healthPopup].verdict}
-                </span>
-              </div>
-              <button onClick={() => setHealthPopup(null)} className="text-[#484f58] hover:text-[#c9d1d9] transition">
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <div className="px-5 py-4 max-h-[60vh] overflow-y-auto">
-              {(healthData[healthPopup].strengths.length > 0 || healthData[healthPopup].concerns.length > 0) ? (
-                <div className="space-y-4">
-                  {healthData[healthPopup].strengths.length > 0 && (
-                    <div>
-                      <h4 className="text-[10px] font-semibold text-[#3fb950] uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                        </svg>
-                        Strengths
-                      </h4>
-                      <ul className="space-y-1.5">
-                        {healthData[healthPopup].strengths.map((s, i) => (
-                          <li key={i} className="text-xs text-[#c9d1d9] flex items-start gap-2 leading-relaxed">
-                            <span className="text-[#3fb950] mt-0.5 shrink-0">•</span>
-                            {s}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {healthData[healthPopup].concerns.length > 0 && (
-                    <div>
-                      <h4 className="text-[10px] font-semibold text-[#d29922] uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-                        </svg>
-                        Concerns
-                      </h4>
-                      <ul className="space-y-1.5">
-                        {healthData[healthPopup].concerns.map((c, i) => (
-                          <li key={i} className="text-xs text-[#c9d1d9] flex items-start gap-2 leading-relaxed">
-                            <span className="text-[#d29922] mt-0.5 shrink-0">•</span>
-                            {c}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <p className="text-xs text-[#484f58] italic">No strengths or concerns identified.</p>
-              )}
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );

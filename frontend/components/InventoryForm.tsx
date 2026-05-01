@@ -3,6 +3,10 @@
 import { useState, useEffect, useCallback } from "react";
 import type { StockHolding, StockHoldingInput, StockMarketData, EarningsCalendar, EarningsResult, AnalystTrend, FinancialHealth } from "@/lib/types";
 import { addHolding, deleteHolding, getMarketData, getEarningsCalendar, getEarningsHistory, getAnalystTrends, getFinancialHealth } from "@/lib/api";
+import Screener from "./Screener";
+import StockNews from "./StockNews";
+import TickerLink from "./TickerLink";
+import { useHealthPopup } from "./HealthPopupContext";
 
 interface Props {
   holdings: StockHolding[];
@@ -43,7 +47,8 @@ export default function InventoryForm({
   const [earningsData, setEarningsData] = useState<Record<string, { calendar: EarningsCalendar[]; history: EarningsResult[] }>>({});
   const [analystTrends, setAnalystTrends] = useState<Record<string, AnalystTrend[]>>({});
   const [healthData, setHealthData] = useState<Record<string, FinancialHealth>>({});
-  const [healthPopup, setHealthPopup] = useState<string | null>(null);
+  const [internalTab, setInternalTab] = useState<"add" | "screener" | "news">("add");
+  const { openHealthPopup } = useHealthPopup();
 
   const refreshMarketData = useCallback(async () => {
     const allTickers = [...new Set(holdings.map((h) => h.ticker))].sort();
@@ -188,12 +193,80 @@ export default function InventoryForm({
 
   return (
     <section className="bg-[#161b22] rounded border border-[#30363d] overflow-hidden">
+      {/* Internal tabs */}
+      <div className="flex border-b border-[#30363d]">
+        {(["add", "screener", "news"] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setInternalTab(tab)}
+            className={`px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider transition ${
+              internalTab === tab
+                ? "text-[#c9d1d9] border-b-2 border-[#58a6ff]"
+                : "text-[#8b949e] hover:text-[#c9d1d9]"
+            }`}
+          >
+            {tab === "add" ? "Add Ticker" : tab === "screener" ? "Undervalued Stocks" : "Stock News"}
+          </button>
+        ))}
+      </div>
+
       <div className="p-5">
+        {/* Add Ticker tab content */}
+        <div className={internalTab === "add" ? "" : "hidden"}>
+        {/* Toolbar */}
+        <div className="flex items-center gap-px mb-3 bg-[#21262d] rounded border border-[#30363d] overflow-hidden w-fit">
+          <button
+            type="button"
+            onClick={onGenerate}
+            disabled={generating || holdings.length === 0}
+            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 transition disabled:opacity-40 disabled:cursor-not-allowed text-[#c9d1d9] hover:text-white hover:bg-[#30363d]"
+          >
+            {generating ? (
+              <>
+                <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+                </svg>
+                Loading…
+              </>
+            ) : (
+              <>
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+                </svg>
+                Option Chain
+              </>
+            )}
+          </button>
+          <div className="w-px h-5 bg-[#30363d]" />
+          <button
+            type="button"
+            onClick={handleDownloadTemplate}
+            className="flex items-center gap-1.5 text-xs font-medium text-[#c9d1d9] hover:text-white hover:bg-[#30363d] px-3 py-1.5 transition"
+            title="Download CSV template"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M7.5 12l4.5 4.5m0 0L16.5 12M12 16.5V3" />
+            </svg>
+            Template
+          </button>
+          <div className="w-px h-5 bg-[#30363d]" />
+          <label className="flex items-center gap-1.5 text-xs font-medium text-[#c9d1d9] hover:text-white hover:bg-[#30363d] px-3 py-1.5 transition cursor-pointer" title="Import CSV">
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
+            </svg>
+            {importing ? "Importing…" : "Import"}
+            <input
+              type="file"
+              accept=".csv"
+              className="hidden"
+              onChange={handleImportCsv}
+              disabled={importing}
+            />
+          </label>
+        </div>
+
         {/* Add form */}
         <div className="mb-5">
-          <p className="text-[10px] font-semibold text-[#8b949e] uppercase tracking-widest mb-2">
-            Add Ticker
-          </p>
           {importError && (
             <div className="flex items-center gap-2 text-[#f85149] text-xs font-medium bg-[#f8514915] px-3 py-2 rounded border border-[#f8514930] mb-3">
               <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -264,7 +337,7 @@ export default function InventoryForm({
             <button
               type="submit"
               disabled={saving}
-              className="shrink-0 bg-[#21262d] hover:bg-[#30363d] disabled:opacity-40 text-[#c9d1d9] font-medium px-4 py-2 rounded transition text-xs flex items-center gap-1.5 border border-[#30363d]"
+              className="shrink-0 bg-[#238636] hover:bg-[#2ea043] disabled:opacity-40 text-white font-medium px-4 py-2 rounded transition text-xs flex items-center gap-1.5"
             >
               {saving ? (
                 <>
@@ -282,52 +355,6 @@ export default function InventoryForm({
                 </>
               )}
             </button>
-            <button
-              type="button"
-              onClick={onGenerate}
-              disabled={generating || holdings.length === 0}
-              className="shrink-0 bg-[#238636] hover:bg-[#2ea043] disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium px-4 py-2 rounded transition text-xs flex items-center gap-1.5"
-            >
-              {generating ? (
-                <>
-                  <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
-                  </svg>
-                  Loading…
-                </>
-              ) : (
-                <>
-                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
-                  </svg>
-                  Option Chain
-                </>
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={handleDownloadTemplate}
-              className="shrink-0 flex items-center gap-1.5 text-[10px] font-medium text-[#8b949e] hover:text-[#c9d1d9] border border-[#30363d] hover:border-[#484f58] bg-[#161b22] px-3 py-2 rounded transition"
-              title="Download CSV template"
-            >
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m.75 12 3 3m0 0 3-3m-3 3v-6m-1.5-9H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
-              </svg>
-              Template
-            </button>
-            <label className="shrink-0 flex items-center gap-1.5 text-[10px] font-medium text-[#8b949e] hover:text-[#c9d1d9] border border-[#30363d] hover:border-[#484f58] bg-[#161b22] px-3 py-2 rounded transition cursor-pointer" title="Import CSV">
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
-              </svg>
-              {importing ? "Importing…" : "Import"}
-              <input
-                type="file"
-                accept=".csv"
-                className="hidden"
-                onChange={handleImportCsv}
-                disabled={importing}
-              />
-            </label>
           </form>
         </div>
 
@@ -410,7 +437,7 @@ export default function InventoryForm({
                   return (
                     <tr key={h.id} className="group hover:bg-[#1c2128] transition-colors">
                       <td className={`px-3 py-2.5 ${rowBorder}`}>
-                        <span className="font-bold text-[#c9d1d9] tracking-wider uppercase">{h.ticker}</span>
+                        <TickerLink ticker={h.ticker} className="font-bold text-[#58a6ff] tracking-wider uppercase hover:underline cursor-pointer" />
                       </td>
                       <td className={`px-3 py-2.5 text-right ${rowBorder}`}>
                         {(() => {
@@ -418,13 +445,9 @@ export default function InventoryForm({
                           if (!health) return <span className="text-[#484f58] text-[10px]">—</span>;
                           const color = health.health_score >= 80 ? "text-[#3fb950]" : health.health_score >= 65 ? "text-[#56d364]" : health.health_score >= 45 ? "text-[#d29922]" : health.health_score >= 25 ? "text-[#db6d28]" : "text-[#f85149]";
                           return (
-                            <button
-                              onClick={() => setHealthPopup(h.ticker)}
-                              className={`text-[10px] font-bold tabular-nums ${color} hover:underline cursor-pointer`}
-                              title="View strengths & concerns"
-                            >
+                            <span className={`text-[10px] font-bold tabular-nums ${color}`}>
                               {health.health_score}
-                            </button>
+                            </span>
                           );
                         })()}
                       </td>
@@ -554,74 +577,70 @@ export default function InventoryForm({
             </table>
           </div>
         )}
-      </div>
-
-      {/* Health popup */}
-      {healthPopup && healthData[healthPopup] && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setHealthPopup(null)}>
-          <div className="bg-[#161b22] border border-[#30363d] rounded-lg shadow-xl max-w-md w-full mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-5 py-3 border-b border-[#21262d]">
-              <div className="flex items-center gap-3">
-                <span className="text-sm font-bold text-[#c9d1d9]">{healthPopup}</span>
-                <span className={`text-xs font-bold tabular-nums ${
-                  healthData[healthPopup].health_score >= 80 ? "text-[#3fb950]" : healthData[healthPopup].health_score >= 65 ? "text-[#56d364]" : healthData[healthPopup].health_score >= 45 ? "text-[#d29922]" : healthData[healthPopup].health_score >= 25 ? "text-[#db6d28]" : "text-[#f85149]"
-                }`}>
-                  {healthData[healthPopup].health_score}/100 · {healthData[healthPopup].verdict}
-                </span>
-              </div>
-              <button onClick={() => setHealthPopup(null)} className="text-[#484f58] hover:text-[#c9d1d9] transition">
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <div className="px-5 py-4 max-h-[60vh] overflow-y-auto">
-              {(healthData[healthPopup].strengths.length > 0 || healthData[healthPopup].concerns.length > 0) ? (
-                <div className="space-y-4">
-                  {healthData[healthPopup].strengths.length > 0 && (
-                    <div>
-                      <h4 className="text-[10px] font-semibold text-[#3fb950] uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                        </svg>
-                        Strengths
-                      </h4>
-                      <ul className="space-y-1.5">
-                        {healthData[healthPopup].strengths.map((s, i) => (
-                          <li key={i} className="text-xs text-[#c9d1d9] flex items-start gap-2 leading-relaxed">
-                            <span className="text-[#3fb950] mt-0.5 shrink-0">•</span>
-                            {s}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {healthData[healthPopup].concerns.length > 0 && (
-                    <div>
-                      <h4 className="text-[10px] font-semibold text-[#d29922] uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-                        </svg>
-                        Concerns
-                      </h4>
-                      <ul className="space-y-1.5">
-                        {healthData[healthPopup].concerns.map((c, i) => (
-                          <li key={i} className="text-xs text-[#c9d1d9] flex items-start gap-2 leading-relaxed">
-                            <span className="text-[#d29922] mt-0.5 shrink-0">•</span>
-                            {c}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <p className="text-xs text-[#484f58] italic">No strengths or concerns identified.</p>
-              )}
-            </div>
-          </div>
         </div>
-      )}
+        {/* End Add Ticker tab */}
+
+        {/* Screener tab content */}
+        <div className={internalTab === "screener" ? "" : "hidden"}>
+          <Screener
+            existingTickers={holdings.map(h => h.ticker)}
+            onAddTicker={async (ticker) => {
+              try {
+                await addHolding({ ticker, shares: 0, cost_basis: 0, current_price: 0 });
+                onChanged();
+              } catch { /* ignore duplicates */ }
+            }}
+            onRemoveTicker={async (ticker) => {
+              const holding = holdings.find(h => h.ticker.toUpperCase() === ticker.toUpperCase());
+              if (holding) {
+                try {
+                  await deleteHolding(holding.id);
+                  onChanged();
+                } catch { /* ignore */ }
+              }
+            }}
+            onAddTickers={async (tickers) => {
+              for (const ticker of tickers) {
+                try {
+                  await addHolding({ ticker, shares: 0, cost_basis: 0, current_price: 0 });
+                } catch { /* ignore duplicates */ }
+              }
+              onChanged();
+              setInternalTab("add");
+            }}
+          />
+        </div>
+
+        {/* News tab content */}
+        <div className={internalTab === "news" ? "" : "hidden"}>
+          <StockNews
+            existingTickers={holdings.map(h => h.ticker)}
+            onAddTicker={async (ticker) => {
+              try {
+                await addHolding({ ticker, shares: 0, cost_basis: 0, current_price: 0 });
+                onChanged();
+              } catch { /* ignore duplicates */ }
+            }}
+            onRemoveTicker={async (ticker) => {
+              const holding = holdings.find(h => h.ticker.toUpperCase() === ticker.toUpperCase());
+              if (holding) {
+                try {
+                  await deleteHolding(holding.id);
+                  onChanged();
+                } catch { /* ignore */ }
+              }
+            }}
+            onAddTickers={async (tickers) => {
+              for (const ticker of tickers) {
+                try {
+                  await addHolding({ ticker, shares: 0, cost_basis: 0, current_price: 0 });
+                } catch { /* ignore duplicates */ }
+              }
+              onChanged();
+            }}
+          />
+        </div>
+      </div>
     </section>
   );
 }
