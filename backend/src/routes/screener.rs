@@ -5,16 +5,18 @@
 //! sorted by value score descending.
 
 use axum::{
-    extract::Query,
+    extract::{Query, State},
     response::IntoResponse,
     routing::get,
     Json, Router,
 };
 use serde::Deserialize;
+use std::sync::Arc;
 use tracing::warn;
 
-use crate::adapters::yahoo_finance::{acquire_crumb, fetch_screener_data};
+use crate::adapters::yahoo_finance::fetch_screener_data;
 use crate::models::ScreenerCandidate;
+use crate::AppState;
 
 /// A curated list of well-known, liquid stocks suitable for the wheel strategy.
 /// These have active options markets and are commonly wheeled.
@@ -26,8 +28,8 @@ const DEFAULT_TICKERS: &[&str] = &[
     "PLTR", "COIN", "HOOD", "F", "GM", "T", "VZ", "CSCO",
 ];
 
-pub fn router() -> Router {
-    Router::new().route("/", get(screen_stocks))
+pub fn router(state: Arc<AppState>) -> Router {
+    Router::new().route("/", get(screen_stocks)).with_state(state)
 }
 
 #[derive(Deserialize)]
@@ -38,7 +40,10 @@ struct ScreenerQuery {
     min_score: Option<u8>,
 }
 
-async fn screen_stocks(Query(query): Query<ScreenerQuery>) -> impl IntoResponse {
+async fn screen_stocks(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<ScreenerQuery>,
+) -> impl IntoResponse {
     let tickers: Vec<String> = match query.tickers {
         Some(t) if !t.trim().is_empty() => t
             .split(',')
@@ -50,38 +55,57 @@ async fn screen_stocks(Query(query): Query<ScreenerQuery>) -> impl IntoResponse 
 
     let min_score = query.min_score.unwrap_or(30);
 
-    let session = acquire_crumb().await;
-    let (client, crumb) = match session {
-        Ok(s) => s,
-        Err(e) => {
-            warn!(error = %e, "Failed to acquire Yahoo Finance session for screener");
-            return Json(Vec::<ScreenerCandidate>::new());
-        }
-    };
-
-    // Fetch all tickers in parallel
-    let tasks: Vec<_> = tickers
-        .into_iter()
-        .map(|ticker| {
-            let client = client.clone();
-            let crumb = crumb.clone();
-            tokio::spawn(async move {
-                match fetch_screener_data(&client, &crumb, &ticker).await {
-                    Ok(candidate) => Some(candidate),
-                    Err(e) => {
-                        warn!(ticker = %ticker, error = %e, "Failed to screen ticker");
-                        None
-                    }
-                }
-            })
-        })
-        .collect();
-
     let mut candidates: Vec<ScreenerCandidate> = Vec::new();
-    for task in tasks {
-        if let Ok(Some(c)) = task.await {
-            if c.value_score >= min_score {
-                candidates.push(c);
+    let mut uncached: Vec<String> = Vec::new();
+
+    {
+        let mut cache = state.screener_cache.write().await;
+        for ticker in &tickers {
+            if let Some(cached) = cache.get(ticker) {
+                if cached.value_score >= min_score {
+                    candidates.push(cached);
+                }
+            } else {
+                uncached.push(ticker.clone());
+            }
+        }
+    }
+
+    if !uncached.is_empty() {
+        let session = state.yahoo.get().await;
+        let (client, crumb) = match session {
+            Ok(s) => s,
+            Err(e) => {
+                warn!(error = %e, "Failed to acquire Yahoo Finance session for screener");
+                candidates.sort_by(|a, b| b.value_score.cmp(&a.value_score));
+                return Json(candidates);
+            }
+        };
+
+        let tasks: Vec<_> = uncached
+            .into_iter()
+            .map(|ticker| {
+                let client = client.clone();
+                let crumb = crumb.clone();
+                tokio::spawn(async move {
+                    match fetch_screener_data(&client, &crumb, &ticker).await {
+                        Ok(candidate) => Some(candidate),
+                        Err(e) => {
+                            warn!(ticker = %ticker, error = %e, "Failed to screen ticker");
+                            None
+                        }
+                    }
+                })
+            })
+            .collect();
+
+        let mut cache = state.screener_cache.write().await;
+        for task in tasks {
+            if let Ok(Some(c)) = task.await {
+                cache.insert(c.ticker.clone(), c.clone());
+                if c.value_score >= min_score {
+                    candidates.push(c);
+                }
             }
         }
     }

@@ -12,7 +12,7 @@ interface StockNewsProps {
   existingTickers: string[];
 }
 
-export default function StockNews({ onAddTicker, onAddTickers, onRemoveTicker, existingTickers }: StockNewsProps) {
+export default function StockNews({ onAddTicker, onRemoveTicker, existingTickers }: StockNewsProps) {
   const [news, setNews] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -108,7 +108,7 @@ export default function StockNews({ onAddTicker, onAddTickers, onRemoveTicker, e
         </div>
         {/* Rows */}
         <div className="flex-1 overflow-y-auto">
-          {grouped.map(([ticker, items]) => (
+          {grouped.map(([ticker]) => (
             <div
               key={ticker}
               onClick={() => setActiveTicker(ticker)}

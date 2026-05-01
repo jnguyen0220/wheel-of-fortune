@@ -38,7 +38,25 @@ async fn get_market_data(
         .filter(|t| !t.is_empty())
         .collect();
 
-    let tasks: Vec<_> = tickers
+    let mut result: HashMap<String, StockMarketData> = HashMap::new();
+    let mut uncached: Vec<String> = Vec::new();
+
+    {
+        let mut cache = state.market_data_cache.write().await;
+        for ticker in &tickers {
+            if let Some(cached) = cache.get(ticker) {
+                result.insert(ticker.clone(), cached);
+            } else {
+                uncached.push(ticker.clone());
+            }
+        }
+    }
+
+    if uncached.is_empty() {
+        return Json(result);
+    }
+
+    let tasks: Vec<_> = uncached
         .into_iter()
         .map(|ticker| {
             let provider = Arc::clone(&state.options_provider);
@@ -54,9 +72,10 @@ async fn get_market_data(
         })
         .collect();
 
-    let mut result: HashMap<String, StockMarketData> = HashMap::new();
+    let mut cache = state.market_data_cache.write().await;
     for task in tasks {
         if let Ok(Some((ticker, data))) = task.await {
+            cache.insert(ticker.clone(), data.clone());
             result.insert(ticker, data);
         }
     }

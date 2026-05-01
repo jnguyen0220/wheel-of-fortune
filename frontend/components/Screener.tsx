@@ -15,7 +15,7 @@ interface Props {
   existingTickers?: string[];
 }
 
-export default function Screener({ onAddTicker, onAddTickers, onRemoveTicker, existingTickers = [] }: Props) {
+export default function Screener({ onAddTicker, onRemoveTicker, existingTickers = [] }: Props) {
   const [candidates, setCandidates] = useState<ScreenerCandidate[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,7 +69,7 @@ export default function Screener({ onAddTicker, onAddTickers, onRemoveTicker, ex
   }
 
   return (
-    <div className="bg-[#161b22] rounded border border-[#30363d] overflow-hidden">
+    <div className="card">
       <div className="px-4 py-3 border-b border-[#30363d] flex items-center justify-between">
         <div className="flex items-center gap-2">
           <svg className="w-4 h-4 text-[#3fb950]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -81,7 +81,7 @@ export default function Screener({ onAddTicker, onAddTickers, onRemoveTicker, ex
           type="button"
           onClick={runScreener}
           disabled={loading}
-          className="flex items-center gap-1.5 bg-[#238636] hover:bg-[#2ea043] disabled:opacity-40 text-white font-medium px-3 py-1.5 rounded text-[10px] transition"
+          className="flex items-center gap-1.5 btn-primary px-3 py-1.5 text-[10px]"
         >
           {loading ? (
             <>
@@ -109,12 +109,12 @@ export default function Screener({ onAddTicker, onAddTickers, onRemoveTicker, ex
             value={customTickers}
             onChange={(e) => setCustomTickers(e.target.value.toUpperCase())}
             placeholder="Custom tickers (e.g. AAPL,MSFT) or leave blank for defaults"
-            className="flex-1 border border-[#30363d] rounded px-3 py-1.5 text-xs placeholder:text-[#484f58] focus:outline-none focus:ring-1 focus:ring-[#58a6ff] bg-[#0d1117] text-[#c9d1d9] transition"
+            className="input flex-1 py-1.5"
           />
         </div>
 
         {error && (
-          <div className="flex items-center gap-2 text-[#f85149] text-xs font-medium bg-[#f8514915] px-3 py-2 rounded border border-[#f8514930] mb-3">
+          <div className="alert-error mb-3">
             <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
             </svg>
@@ -123,8 +123,8 @@ export default function Screener({ onAddTicker, onAddTickers, onRemoveTicker, ex
         )}
 
         {!hasRun && !loading && (
-          <div className="flex flex-col items-center justify-center py-8 text-center">
-            <div className="w-10 h-10 rounded bg-[#1c2128] flex items-center justify-center mb-3">
+          <div className="empty-state py-8">
+            <div className="empty-state-icon">
               <svg className="w-5 h-5 text-[#484f58]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.306a11.95 11.95 0 015.814-5.518l2.74-1.22m0 0l-5.94-2.281m5.94 2.28l-2.28 5.941" />
               </svg>
@@ -150,34 +150,34 @@ export default function Screener({ onAddTicker, onAddTickers, onRemoveTicker, ex
                     </svg>
                   </th>
                   <th
-                    className="px-2 py-2 text-left text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider cursor-pointer select-none hover:text-[#c9d1d9] transition-colors"
+                    className="px-2 py-2 text-left th cursor-pointer select-none hover:text-[#c9d1d9] transition-colors"
                     onClick={() => toggleSort("ticker")}
                   >
                     Ticker{sortField === "ticker" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
                   </th>
                   <th
-                    className="px-2 py-2 text-right text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider cursor-pointer select-none hover:text-[#c9d1d9] transition-colors"
+                    className="px-2 py-2 text-right th cursor-pointer select-none hover:text-[#c9d1d9] transition-colors"
                     onClick={() => toggleSort("price")}
                   >
                     Price{sortField === "price" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
                   </th>
-                  <th className="px-2 py-2 text-right text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">Target</th>
+                  <th className="px-2 py-2 text-right th">Target</th>
                   <th
-                    className="px-2 py-2 text-right text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider cursor-pointer select-none hover:text-[#c9d1d9] transition-colors"
+                    className="px-2 py-2 text-right th cursor-pointer select-none hover:text-[#c9d1d9] transition-colors"
                     onClick={() => toggleSort("upside")}
                   >
                     Upside{sortField === "upside" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
                   </th>
-                  <th className="px-2 py-2 text-right text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">Fwd P/E</th>
-                  <th className="px-2 py-2 text-right text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">PEG</th>
-                  <th className="px-2 py-2 text-right text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">P/B</th>
+                  <th className="px-2 py-2 text-right th">Fwd P/E</th>
+                  <th className="px-2 py-2 text-right th">PEG</th>
+                  <th className="px-2 py-2 text-right th">P/B</th>
                   <th
-                    className="px-2 py-2 text-right text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider cursor-pointer select-none hover:text-[#c9d1d9] transition-colors"
+                    className="px-2 py-2 text-right th cursor-pointer select-none hover:text-[#c9d1d9] transition-colors"
                     onClick={() => toggleSort("score")}
                   >
                     Score{sortField === "score" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
                   </th>
-                  <th className="px-2 py-2 text-left text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">Why</th>
+                  <th className="px-2 py-2 text-left th">Why</th>
                 </tr>
               </thead>
               <tbody>

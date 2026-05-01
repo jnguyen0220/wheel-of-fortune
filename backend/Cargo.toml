@@ -21,5 +21,3 @@ async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 dotenvy = "0.15"
-futures = "0.3"
-urlencoding = "2"

@@ -6,6 +6,7 @@ mod routes;
 mod strategy;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Result;
 use tokio::sync::RwLock;
@@ -14,10 +15,11 @@ use tower_http::trace::TraceLayer;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use adapters::{json_adapter::JsonAdapter, OptionsDataProvider};
-use adapters::yahoo_finance::YahooFinanceAdapter;
-use cache::FinancialHealthCache;
-use models::StockHolding;
+use adapters::OptionsDataProvider;
+use adapters::yahoo_finance::{YahooFinanceAdapter, YahooSession};
+use cache::TtlCache;
+use models::{AnalystTrend, EarningsCalendar, EarningsResult, FinancialHealth, ScreenerCandidate, StockHolding, StockMarketData};
+use routes::news::NewsItem;
 
 // ── Application state ─────────────────────────────────────────────────────────
 
@@ -26,8 +28,22 @@ pub struct AppState {
     pub inventory: RwLock<Vec<StockHolding>>,
     /// Options data provider (JSON mock or live web API).
     pub options_provider: Arc<dyn OptionsDataProvider>,
-    /// Cache for financial health lookups (strengths/concerns), max 20 items.
-    pub financials_cache: RwLock<FinancialHealthCache>,
+    /// Centralized Yahoo Finance session (crumb + cookie client, auto-refreshed).
+    pub yahoo: Arc<YahooSession>,
+    /// Cache for financial health lookups — TTL 12 hours, max 50 items.
+    pub financials_cache: RwLock<TtlCache<FinancialHealth>>,
+    /// Cache for earnings calendar — TTL 24 hours, max 50 items.
+    pub earnings_calendar_cache: RwLock<TtlCache<Vec<EarningsCalendar>>>,
+    /// Cache for earnings history — TTL 24 hours, max 50 items.
+    pub earnings_history_cache: RwLock<TtlCache<Vec<EarningsResult>>>,
+    /// Cache for analyst trends — TTL 6 hours, max 50 items.
+    pub analyst_trends_cache: RwLock<TtlCache<Vec<AnalystTrend>>>,
+    /// Cache for screener data — TTL 3 hours, max 50 items.
+    pub screener_cache: RwLock<TtlCache<ScreenerCandidate>>,
+    /// Cache for news — TTL 15 minutes, max 50 items.
+    pub news_cache: RwLock<TtlCache<Vec<NewsItem>>>,
+    /// Cache for market data — TTL 2 minutes, max 50 items.
+    pub market_data_cache: RwLock<TtlCache<StockMarketData>>,
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────
@@ -46,34 +62,21 @@ async fn main() -> Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    // Select adapter based on environment variable.
-    //   DATA_SOURCE=yahoo  → YahooFinanceAdapter (default, no API key needed)
-    //   DATA_SOURCE=api    → WebApiAdapter (requires OPTIONS_API_KEY)
-    //   DATA_SOURCE=json   → JsonAdapter (local mock files)
-    let data_source = std::env::var("DATA_SOURCE").unwrap_or_else(|_| "yahoo".to_string());
-
-    let options_provider: Arc<dyn OptionsDataProvider> = match data_source.as_str() {
-        "api" => {
-            use adapters::web_api_adapter::WebApiAdapter;
-            info!("Using WebApiAdapter (live market data via MarketData.app)");
-            Arc::new(WebApiAdapter::from_env()?)
-        }
-        "json" => {
-            let data_dir = std::env::var("MOCK_DATA_DIR")
-                .unwrap_or_else(|_| "../data/mock".to_string());
-            info!("Using JsonAdapter with data dir: {data_dir}");
-            Arc::new(JsonAdapter::new(data_dir))
-        }
-        _ => {
-            info!("Using YahooFinanceAdapter (live market data via Yahoo Finance)");
-            Arc::new(YahooFinanceAdapter)
-        }
-    };
+    info!("Using YahooFinanceAdapter (live market data via Yahoo Finance)");
+    let yahoo = Arc::new(YahooSession::new());
+    let options_provider: Arc<dyn OptionsDataProvider> = Arc::new(YahooFinanceAdapter::new(yahoo.clone()));
 
     let state = Arc::new(AppState {
         inventory: RwLock::new(Vec::new()),
         options_provider,
-        financials_cache: RwLock::new(FinancialHealthCache::new()),
+        yahoo,
+        financials_cache: RwLock::new(TtlCache::new(50, Duration::from_secs(12 * 3600))),
+        earnings_calendar_cache: RwLock::new(TtlCache::new(50, Duration::from_secs(24 * 3600))),
+        earnings_history_cache: RwLock::new(TtlCache::new(50, Duration::from_secs(24 * 3600))),
+        analyst_trends_cache: RwLock::new(TtlCache::new(50, Duration::from_secs(6 * 3600))),
+        screener_cache: RwLock::new(TtlCache::new(50, Duration::from_secs(3 * 3600))),
+        news_cache: RwLock::new(TtlCache::new(50, Duration::from_secs(15 * 60))),
+        market_data_cache: RwLock::new(TtlCache::new(50, Duration::from_secs(2 * 60))),
     });
 
     // CORS – allow all origins in development. Tighten for production.

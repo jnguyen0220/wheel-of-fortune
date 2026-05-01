@@ -28,7 +28,7 @@ pub struct RecommendationRequest {
     /// Override the server-side inventory.  If omitted, the stored inventory
     /// is used.
     pub inventory: Option<Inventory>,
-    /// Tickers to fetch options data for.  Must match filenames in `data/mock/`.
+    /// Tickers to fetch options data for.
     pub tickers: Vec<String>,
     /// Available cash for CSP recommendations (in dollars)
     pub available_cash: Option<f64>,
@@ -64,8 +64,6 @@ pub struct RecommendationResponse {
     pub recommendations: Vec<WheelRecommendation>,
     /// The LLM prompt that asks the model to rank the pre-computed trades.
     pub llm_prompt: crate::llm::prompt::LlmPrompt,
-    /// Adapter used to fetch options data.
-    pub data_source: String,
     /// Tickers that were requested but had no options chain data.
     pub tickers_without_options: Vec<String>,
 }
@@ -138,8 +136,6 @@ async fn get_recommendations(
             }
         }
     };
-
-    let data_source = state.options_provider.adapter_name().to_string();
 
     // Identify tickers that had no options chain returned.
     let tickers_with_chains: std::collections::HashSet<String> =
@@ -249,7 +245,6 @@ async fn get_recommendations(
         market_data,
         recommendations,
         llm_prompt,
-        data_source,
         tickers_without_options,
     })
     .into_response()

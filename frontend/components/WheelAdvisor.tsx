@@ -176,7 +176,7 @@ export default function WheelAdvisor() {
       <div className="max-w-7xl mx-auto px-6 pt-4">
         {/* Tab nav */}
         <div className="flex items-center gap-3 mb-4">
-          <div className="flex bg-[#161b22] border border-[#30363d] rounded p-0.5">
+          <div className="tab-group">
             {(
               [
                 { key: "inventory", label: "Portfolio" },
@@ -188,7 +188,7 @@ export default function WheelAdvisor() {
                 key={key}
                 onClick={() => setActiveTab(key)}
                 disabled={(key === "options" && !optionsLoaded) || (key === "ai" && !llmPrompt)}
-                className={`px-4 py-1.5 text-xs font-medium rounded transition ${
+                className={`tab-btn ${
                   activeTab === key
                     ? "bg-[#30363d] text-[#c9d1d9]"
                     : "text-[#8b949e] hover:text-[#c9d1d9] disabled:opacity-30 disabled:cursor-not-allowed"

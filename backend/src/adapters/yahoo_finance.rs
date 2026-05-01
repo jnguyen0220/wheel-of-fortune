@@ -20,6 +20,9 @@ use async_trait::async_trait;
 use chrono::Datelike;
 use reqwest::Client;
 use serde::Deserialize;
+use std::sync::Arc;
+use std::time::Instant;
+use tokio::sync::RwLock;
 use tracing::{debug, instrument};
 
 use crate::adapters::OptionsDataProvider;
@@ -342,10 +345,78 @@ fn bs_put_theta(s: f64, k: f64, t: f64, sigma: f64, r: f64) -> f64 {
 const YF_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) \
     AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
+/// How long a crumb is considered valid before re-acquiring (25 minutes).
+const CRUMB_TTL_SECS: u64 = 25 * 60;
+
+/// A centralized Yahoo Finance session that caches the crumb + cookie-enabled
+/// HTTP client. Multiple concurrent requests share the same crumb, and it is
+/// re-acquired only when expired or invalid.
+pub struct YahooSession {
+    inner: RwLock<Option<SessionInner>>,
+    /// A plain (non-cookie) HTTP client for endpoints that don't need auth
+    /// (e.g. chart API, news search). Reused across all requests.
+    pub http: Client,
+}
+
+struct SessionInner {
+    client: Client,
+    crumb: String,
+    acquired_at: Instant,
+}
+
+impl YahooSession {
+    pub fn new() -> Self {
+        let http = Client::builder()
+            .user_agent(YF_USER_AGENT)
+            .pool_max_idle_per_host(20)
+            .build()
+            .expect("Failed to build shared HTTP client");
+        Self {
+            inner: RwLock::new(None),
+            http,
+        }
+    }
+
+    /// Get a valid (client, crumb) pair. Reuses the cached session if still
+    /// fresh; otherwise acquires a new one. Concurrent callers wait on the
+    /// lock rather than each acquiring their own crumb.
+    pub async fn get(&self) -> Result<(Client, String)> {
+        // Fast path: check if cached session is still valid.
+        {
+            let guard = self.inner.read().await;
+            if let Some(ref s) = *guard {
+                if s.acquired_at.elapsed().as_secs() < CRUMB_TTL_SECS {
+                    return Ok((s.client.clone(), s.crumb.clone()));
+                }
+            }
+        }
+        // Slow path: acquire a new crumb under write lock.
+        let mut guard = self.inner.write().await;
+        // Double-check after acquiring write lock (another task may have refreshed).
+        if let Some(ref s) = *guard {
+            if s.acquired_at.elapsed().as_secs() < CRUMB_TTL_SECS {
+                return Ok((s.client.clone(), s.crumb.clone()));
+            }
+        }
+        let (client, crumb) = acquire_crumb_fresh().await?;
+        *guard = Some(SessionInner {
+            client: client.clone(),
+            crumb: crumb.clone(),
+            acquired_at: Instant::now(),
+        });
+        Ok((client, crumb))
+    }
+
+    /// Invalidate the cached session (e.g. after a 401 response).
+    pub async fn invalidate(&self) {
+        let mut guard = self.inner.write().await;
+        *guard = None;
+    }
+}
+
 /// Obtain a Yahoo Finance crumb using a fresh cookie-enabled HTTP client.
-///
 /// Returns `(client_with_cookies, crumb_string)`.
-pub async fn acquire_crumb() -> Result<(Client, String)> {
+async fn acquire_crumb_fresh() -> Result<(Client, String)> {
     let client = Client::builder()
         .cookie_store(true)
         .user_agent(YF_USER_AGENT)
@@ -601,46 +672,35 @@ async fn fetch_yahoo_options_chain_with_session(
     })
 }
 
-/// Fetch a full options chain for `ticker` from Yahoo Finance.
-///
-/// Acquires a crumb + cookie session, discovers all expirations in the 25-35 DTE
-/// window, fetches each one, and computes put/call delta via Black-Scholes.
-#[instrument(skip_all, fields(ticker))]
-pub async fn fetch_yahoo_options_chain(ticker: &str) -> Result<OptionsChain> {
-    let ticker_upper = ticker.to_uppercase();
-
-    // Acquire crumb + cookie session
-    let (cookie_client, crumb) = acquire_crumb()
-        .await
-        .context("Yahoo Finance crumb acquisition failed")?;
-
-    debug!(ticker = %ticker_upper, "Yahoo Finance crumb acquired");
-
-    fetch_yahoo_options_chain_with_session(&ticker_upper, &cookie_client, &crumb).await
-}
-
 // ── Adapter struct ────────────────────────────────────────────────────────────
 
 /// [`OptionsDataProvider`] implementation backed by Yahoo Finance.
 ///
 /// No API key required. Uses the unofficial crumb + cookie auth flow.
-pub struct YahooFinanceAdapter;
+/// Shares a centralized `YahooSession` for efficient crumb reuse.
+pub struct YahooFinanceAdapter {
+    session: Arc<YahooSession>,
+}
+
+impl YahooFinanceAdapter {
+    pub fn new(session: Arc<YahooSession>) -> Self {
+        Self { session }
+    }
+}
 
 #[async_trait]
 impl OptionsDataProvider for YahooFinanceAdapter {
-    fn adapter_name(&self) -> &'static str {
-        "YahooFinanceAdapter"
-    }
-
     async fn fetch_options_chain(&self, ticker: &str) -> Result<OptionsChain> {
-        fetch_yahoo_options_chain(ticker).await
+        let ticker_upper = ticker.to_uppercase();
+        let (client, crumb) = self.session.get().await
+            .context("Yahoo Finance crumb acquisition failed")?;
+        fetch_yahoo_options_chain_with_session(&ticker_upper, &client, &crumb).await
     }
 
-    /// Override the default implementation to acquire the Yahoo crumb **once**
-    /// and reuse it for all tickers, avoiding per-ticker session overhead and
-    /// rate-limit issues that cause subsequent tickers to fail.
+    /// Acquire the Yahoo crumb **once** via the shared session and reuse it
+    /// for all tickers concurrently.
     async fn fetch_options_chains(&self, tickers: &[String]) -> Result<Vec<OptionsChain>> {
-        let (cookie_client, crumb) = acquire_crumb()
+        let (cookie_client, crumb) = self.session.get()
             .await
             .context("Yahoo Finance crumb acquisition failed")?;
 
@@ -674,12 +734,8 @@ impl OptionsDataProvider for YahooFinanceAdapter {
     }
 
     async fn fetch_stock_market_data(&self, ticker: &str) -> Result<StockMarketData> {
-        // Use the dedicated chart endpoint for accurate market data.
-        let client = Client::builder()
-            .user_agent(YF_USER_AGENT)
-            .build()
-            .context("Failed to build HTTP client")?;
-        fetch_yahoo_market_data(&client, ticker).await
+        // Use the shared HTTP client for the chart endpoint (no crumb needed).
+        fetch_yahoo_market_data(&self.session.http, ticker).await
     }
 }
 
@@ -978,7 +1034,6 @@ struct YahooFinancialData {
     return_on_assets: Option<YahooNumeric>,
     free_cashflow: Option<YahooNumeric>,
     operating_cashflow: Option<YahooNumeric>,
-    earnings_growth: Option<YahooNumeric>,
     current_price: Option<YahooNumeric>,
     target_mean_price: Option<YahooNumeric>,
     number_of_analyst_opinions: Option<YahooNumeric>,

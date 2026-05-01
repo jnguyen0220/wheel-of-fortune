@@ -4,14 +4,17 @@
 //! If no tickers are specified, uses a default list of popular stocks.
 
 use axum::{
-    extract::Query,
+    extract::{Query, State},
     response::IntoResponse,
     routing::get,
     Json, Router,
 };
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use tracing::warn;
+
+use crate::AppState;
 
 const DEFAULT_TICKERS: &[&str] = &[
     "AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA",
@@ -21,8 +24,8 @@ const DEFAULT_TICKERS: &[&str] = &[
     "PLTR", "COIN", "HOOD", "F", "GM", "T", "VZ", "CSCO",
 ];
 
-pub fn router() -> Router {
-    Router::new().route("/", get(get_news))
+pub fn router(state: Arc<AppState>) -> Router {
+    Router::new().route("/", get(get_news)).with_state(state)
 }
 
 #[derive(Deserialize)]
@@ -54,7 +57,10 @@ struct YahooNewsItem {
     provider_publish_time: Option<i64>,
 }
 
-async fn get_news(Query(query): Query<NewsQuery>) -> impl IntoResponse {
+async fn get_news(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<NewsQuery>,
+) -> impl IntoResponse {
     let tickers: Vec<String> = match query.tickers {
         Some(t) if !t.trim().is_empty() => t
             .split(',')
@@ -64,22 +70,40 @@ async fn get_news(Query(query): Query<NewsQuery>) -> impl IntoResponse {
         _ => DEFAULT_TICKERS.iter().map(|s| s.to_string()).collect(),
     };
 
-    let client = Client::new();
-
-    let tasks: Vec<_> = tickers
-        .into_iter()
-        .map(|ticker| {
-            let client = client.clone();
-            tokio::spawn(async move {
-                fetch_news(&client, &ticker).await.unwrap_or_default()
-            })
-        })
-        .collect();
-
     let mut all_news: Vec<NewsItem> = Vec::new();
-    for task in tasks {
-        if let Ok(items) = task.await {
-            all_news.extend(items);
+    let mut uncached: Vec<String> = Vec::new();
+
+    {
+        let mut cache = state.news_cache.write().await;
+        for ticker in &tickers {
+            if let Some(cached) = cache.get(ticker) {
+                all_news.extend(cached);
+            } else {
+                uncached.push(ticker.clone());
+            }
+        }
+    }
+
+    if !uncached.is_empty() {
+        let client = state.yahoo.http.clone();
+
+        let tasks: Vec<_> = uncached
+            .into_iter()
+            .map(|ticker| {
+                let client = client.clone();
+                tokio::spawn(async move {
+                    let items = fetch_news(&client, &ticker).await.unwrap_or_default();
+                    (ticker, items)
+                })
+            })
+            .collect();
+
+        let mut cache = state.news_cache.write().await;
+        for task in tasks {
+            if let Ok((ticker, items)) = task.await {
+                cache.insert(ticker, items.clone());
+                all_news.extend(items);
+            }
         }
     }
 

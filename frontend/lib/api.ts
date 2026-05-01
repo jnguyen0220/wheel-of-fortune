@@ -162,3 +162,20 @@ export async function getNews(tickers?: string[]): Promise<NewsItem[]> {
   const qs = params.toString();
   return apiFetch<NewsItem[]>(`/api/news${qs ? `?${qs}` : ""}`);
 }
+
+// ── Batch API ────────────────────────────────────────────────────────────────
+
+export interface BatchResponse {
+  market_data: Record<string, StockMarketData>;
+  earnings_calendar: Record<string, EarningsCalendar[]>;
+  earnings_history: Record<string, EarningsResult[]>;
+  analyst_trends: Record<string, AnalystTrend[]>;
+  financials: Record<string, FinancialHealth>;
+}
+
+export async function getBatchData(tickers: string[]): Promise<BatchResponse> {
+  const params = tickers.join(",");
+  return apiFetch<BatchResponse>(
+    `/api/batch?tickers=${encodeURIComponent(params)}`,
+  );
+}

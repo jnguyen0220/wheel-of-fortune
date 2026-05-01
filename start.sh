@@ -26,8 +26,6 @@ fi
 
 BACKEND_PORT="${BIND_ADDR:+${BIND_ADDR##*:}}"
 BACKEND_PORT="${BACKEND_PORT:-9000}"
-MOCK_DATA_DIR="${MOCK_DATA_DIR:-$SCRIPT_DIR/data/mock}"
-DATA_SOURCE="${DATA_SOURCE:-yahoo}"
 
 mkdir -p "$LOG_DIR"
 
@@ -55,8 +53,6 @@ BACKEND_BIN="$BACKEND_DIR/target/release/wheel-advisor"
 
 # ── Start backend ─────────────────────────────────────────────────────────────
 echo "▶ Starting backend (port ${BACKEND_PORT})…"
-MOCK_DATA_DIR="$MOCK_DATA_DIR" \
-DATA_SOURCE="$DATA_SOURCE" \
 BIND_ADDR="0.0.0.0:${BACKEND_PORT}" \
   "$BACKEND_BIN" > "$LOG_DIR/backend.log" 2>&1 &
 BACKEND_PID=$!
@@ -115,7 +111,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "  Wheel Advisor is running"
 echo "  Frontend : http://localhost:${FRONTEND_PORT}"
 echo "  Backend  : http://localhost:${BACKEND_PORT}"
-echo "  Data     : ${DATA_SOURCE} (${MOCK_DATA_DIR})"
+echo "  Data     : Yahoo Finance"
 echo "  Logs     : ${LOG_DIR}/"
 echo "  Press Ctrl+C to stop"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

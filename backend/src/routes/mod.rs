@@ -1,11 +1,11 @@
 pub mod analyst;
+pub mod batch;
 pub mod earnings;
 pub mod financials;
 pub mod inventory;
 pub mod market_data;
 pub mod news;
 pub mod options;
-pub mod prices;
 pub mod recommendations;
 pub mod screener;
 
@@ -28,12 +28,12 @@ fn api_routes(state: Arc<AppState>) -> Router {
     Router::new()
         .nest("/inventory", inventory::router(state.clone()))
         .nest("/market-data", market_data::router(state.clone()))
-        .nest("/prices", prices::router(state.clone()))
         .nest("/options", options::router(state.clone()))
         .nest("/recommendations", recommendations::router(state.clone()))
-        .nest("/earnings", earnings::router())
-        .nest("/analyst-trends", analyst::router())
+        .nest("/earnings", earnings::router(state.clone()))
+        .nest("/analyst-trends", analyst::router(state.clone()))
         .nest("/financials", financials::router(state.clone()))
-        .nest("/screener", screener::router())
-        .nest("/news", news::router())
+        .nest("/screener", screener::router(state.clone()))
+        .nest("/news", news::router(state.clone()))
+        .nest("/batch", batch::router(state.clone()))
 }

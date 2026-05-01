@@ -2,11 +2,10 @@
 
 import { useState, useEffect, useCallback } from "react";
 import type { StockHolding, StockHoldingInput, StockMarketData, EarningsCalendar, EarningsResult, AnalystTrend, FinancialHealth } from "@/lib/types";
-import { addHolding, deleteHolding, getMarketData, getEarningsCalendar, getEarningsHistory, getAnalystTrends, getFinancialHealth } from "@/lib/api";
+import { addHolding, deleteHolding, getBatchData } from "@/lib/api";
 import Screener from "./Screener";
 import StockNews from "./StockNews";
 import TickerLink from "./TickerLink";
-import { useHealthPopup } from "./HealthPopupContext";
 
 interface Props {
   holdings: StockHolding[];
@@ -48,30 +47,23 @@ export default function InventoryForm({
   const [analystTrends, setAnalystTrends] = useState<Record<string, AnalystTrend[]>>({});
   const [healthData, setHealthData] = useState<Record<string, FinancialHealth>>({});
   const [internalTab, setInternalTab] = useState<"add" | "screener" | "news">("add");
-  const { openHealthPopup } = useHealthPopup();
 
   const refreshMarketData = useCallback(async () => {
     const allTickers = [...new Set(holdings.map((h) => h.ticker))].sort();
     if (allTickers.length === 0) return;
     setLoadingMarket(true);
     try {
-      const [data, calendar, history, trends, health] = await Promise.all([
-        getMarketData(allTickers),
-        getEarningsCalendar(allTickers).catch(() => ({} as Record<string, EarningsCalendar[]>)),
-        getEarningsHistory(allTickers).catch(() => ({} as Record<string, EarningsResult[]>)),
-        getAnalystTrends(allTickers).catch(() => ({} as Record<string, AnalystTrend[]>)),
-        getFinancialHealth(allTickers).catch(() => ({} as Record<string, FinancialHealth>)),
-      ]);
-      setMarketData(data);
-      setHealthData(health);
+      const batch = await getBatchData(allTickers);
+      setMarketData(batch.market_data);
+      setHealthData(batch.financials);
       const merged: Record<string, { calendar: EarningsCalendar[]; history: EarningsResult[] }> = {};
       for (const t of allTickers) {
-        merged[t] = { calendar: calendar[t] ?? [], history: history[t] ?? [] };
+        merged[t] = { calendar: batch.earnings_calendar[t] ?? [], history: batch.earnings_history[t] ?? [] };
       }
       setEarningsData(merged);
-      setAnalystTrends(trends);
-      onEarningsLoaded?.(calendar, history);
-      onAnalystTrendsLoaded?.(trends);
+      setAnalystTrends(batch.analyst_trends);
+      onEarningsLoaded?.(batch.earnings_calendar, batch.earnings_history);
+      onAnalystTrendsLoaded?.(batch.analyst_trends);
     } catch {
       // silently ignore – market data is supplementary
     } finally {
@@ -109,8 +101,8 @@ export default function InventoryForm({
         // CSP: use cached market price if available, otherwise fetch
         costBasis = marketData[form.ticker]?.price ?? 0;
         if (costBasis === 0) {
-          const data = await getMarketData([form.ticker]);
-          costBasis = data[form.ticker]?.price ?? 0;
+          const data = await getBatchData([form.ticker]);
+          costBasis = data.market_data[form.ticker]?.price ?? 0;
         }
       }
       const payload: StockHoldingInput = {
@@ -192,34 +184,32 @@ export default function InventoryForm({
 
 
   return (
-    <section className="bg-[#161b22] rounded border border-[#30363d] overflow-hidden">
+    <section className="card">
       {/* Internal tabs */}
-      <div className="flex border-b border-[#30363d]">
-        {(["add", "screener", "news"] as const).map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setInternalTab(tab)}
-            className={`px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider transition ${
-              internalTab === tab
-                ? "text-[#c9d1d9] border-b-2 border-[#58a6ff]"
-                : "text-[#8b949e] hover:text-[#c9d1d9]"
-            }`}
-          >
-            {tab === "add" ? "Add Ticker" : tab === "screener" ? "Undervalued Stocks" : "Stock News"}
-          </button>
-        ))}
+      <div className="flex items-center gap-3 p-4 border-b border-[#30363d]">
+        <div className="tab-group">
+          {(["add", "screener", "news"] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setInternalTab(tab)}
+              className={internalTab === tab ? "tab-btn-active" : "tab-btn-inactive"}
+            >
+              {tab === "add" ? "Add Ticker" : tab === "screener" ? "Undervalued Stocks" : "Stock News"}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="p-5">
         {/* Add Ticker tab content */}
         <div className={internalTab === "add" ? "" : "hidden"}>
         {/* Toolbar */}
-        <div className="flex items-center gap-px mb-3 bg-[#21262d] rounded border border-[#30363d] overflow-hidden w-fit">
+        <div className="toolbar mb-3">
           <button
             type="button"
             onClick={onGenerate}
             disabled={generating || holdings.length === 0}
-            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 transition disabled:opacity-40 disabled:cursor-not-allowed text-[#c9d1d9] hover:text-white hover:bg-[#30363d]"
+            className="toolbar-btn disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {generating ? (
               <>
@@ -237,11 +227,11 @@ export default function InventoryForm({
               </>
             )}
           </button>
-          <div className="w-px h-5 bg-[#30363d]" />
+          <div className="toolbar-divider" />
           <button
             type="button"
             onClick={handleDownloadTemplate}
-            className="flex items-center gap-1.5 text-xs font-medium text-[#c9d1d9] hover:text-white hover:bg-[#30363d] px-3 py-1.5 transition"
+            className="toolbar-btn"
             title="Download CSV template"
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -249,8 +239,8 @@ export default function InventoryForm({
             </svg>
             Template
           </button>
-          <div className="w-px h-5 bg-[#30363d]" />
-          <label className="flex items-center gap-1.5 text-xs font-medium text-[#c9d1d9] hover:text-white hover:bg-[#30363d] px-3 py-1.5 transition cursor-pointer" title="Import CSV">
+          <div className="toolbar-divider" />
+          <label className="toolbar-btn cursor-pointer" title="Import CSV">
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
             </svg>
@@ -268,7 +258,7 @@ export default function InventoryForm({
         {/* Add form */}
         <div className="mb-5">
           {importError && (
-            <div className="flex items-center gap-2 text-[#f85149] text-xs font-medium bg-[#f8514915] px-3 py-2 rounded border border-[#f8514930] mb-3">
+            <div className="alert-error mb-3">
               <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
               </svg>
@@ -285,15 +275,15 @@ export default function InventoryForm({
                 placeholder="AAPL"
                 maxLength={6}
                 required
-                className="w-full border border-[#30363d] rounded px-3 py-2 text-xs font-bold uppercase placeholder:font-normal placeholder:text-[#484f58] focus:outline-none focus:ring-1 focus:ring-[#58a6ff] bg-[#0d1117] text-[#c9d1d9] transition"
+                className="input font-bold uppercase placeholder:font-normal"
               />
             </div>
             <div className="min-w-[80px] w-20">
               <label className="flex items-center gap-1.5 text-[10px] font-medium text-[#8b949e] uppercase tracking-wider mb-1">
                 Lots
                 {(parseInt(form.lots, 10) || 0) === 0
-                  ? <span className="inline-flex items-center text-[10px] font-semibold text-[#d29922] bg-[#d2992215] border border-[#d2992240] px-1 py-0 rounded normal-case tracking-normal">CSP</span>
-                  : <span className="inline-flex items-center text-[10px] font-semibold text-[#58a6ff] bg-[#58a6ff15] border border-[#58a6ff40] px-1 py-0 rounded normal-case tracking-normal">CC</span>
+                  ? <span className="badge-csp px-1 py-0 normal-case tracking-normal">CSP</span>
+                  : <span className="badge-cc px-1 py-0 normal-case tracking-normal">CC</span>
                 }
               </label>
               <input
@@ -305,7 +295,7 @@ export default function InventoryForm({
                 onChange={handleChange}
                 placeholder="0"
                 required
-                className="w-full border border-[#30363d] rounded px-3 py-2 text-xs placeholder:text-[#484f58] focus:outline-none focus:ring-1 focus:ring-[#58a6ff] bg-[#0d1117] text-[#c9d1d9] transition"
+                className="input"
               />
             </div>
             <span className="text-[10px] text-[#484f58] font-medium whitespace-nowrap pb-2">× 100 =</span>
@@ -337,7 +327,7 @@ export default function InventoryForm({
             <button
               type="submit"
               disabled={saving}
-              className="shrink-0 bg-[#238636] hover:bg-[#2ea043] disabled:opacity-40 text-white font-medium px-4 py-2 rounded transition text-xs flex items-center gap-1.5"
+              className="shrink-0 btn-primary px-4 py-2 flex items-center gap-1.5"
             >
               {saving ? (
                 <>
@@ -359,7 +349,7 @@ export default function InventoryForm({
         </div>
 
         {error && (
-          <div className="flex items-center gap-2 text-[#f85149] text-xs font-medium bg-[#f8514915] px-3 py-2 rounded border border-[#f8514930] mb-4">
+          <div className="alert-error mb-4">
             <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
             </svg>
@@ -370,7 +360,7 @@ export default function InventoryForm({
         {/* Holdings table */}
         {holdings.length > 0 && (
           <div className="flex items-center justify-between mb-2">
-            <p className="text-[10px] font-semibold text-[#8b949e] uppercase tracking-widest">Positions</p>
+            <p className="section-label">Positions</p>
             <div className="flex items-center gap-2">
               <button
                 type="button"
@@ -392,8 +382,8 @@ export default function InventoryForm({
         )}
         {/* end positions header */}
         {holdings.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <div className="w-10 h-10 rounded bg-[#1c2128] flex items-center justify-center mb-3">
+          <div className="empty-state">
+            <div className="empty-state-icon">
               <svg className="w-5 h-5 text-[#484f58]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M3 14h18M10 3v18M14 3v18" />
               </svg>
@@ -406,20 +396,20 @@ export default function InventoryForm({
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-[#30363d]">
-                  <th className="px-3 py-2 text-left text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">Ticker</th>
-                  <th className="px-3 py-2 text-right text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider whitespace-nowrap">Health</th>
-                  <th className="px-3 py-2 text-center text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">Type</th>
-                  <th className="px-3 py-2 text-right text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">Qty</th>
-                  <th className="px-3 py-2 text-right text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">Avg Cost</th>
-                  <th className="px-3 py-2 text-right text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider whitespace-nowrap">
+                  <th className="px-3 py-2 text-left th">Ticker</th>
+                  <th className="px-3 py-2 text-right th whitespace-nowrap">Health</th>
+                  <th className="px-3 py-2 text-center th">Type</th>
+                  <th className="px-3 py-2 text-right th">Qty</th>
+                  <th className="px-3 py-2 text-right th">Avg Cost</th>
+                  <th className="px-3 py-2 text-right th whitespace-nowrap">
                     Price
                     {loadingMarket && <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-[#58a6ff] animate-pulse align-middle" />}
                   </th>
-                  <th className="px-3 py-2 text-right text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider whitespace-nowrap">P&amp;L</th>
-                  <th className="px-3 py-2 text-right text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider whitespace-nowrap">Low</th>
-                  <th className="px-3 py-2 text-right text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider whitespace-nowrap">High</th>
-                  <th className="px-3 py-2 text-right text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider whitespace-nowrap">Earnings</th>
-                  <th className="px-3 py-2 text-right text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider whitespace-nowrap">Analyst</th>
+                  <th className="px-3 py-2 text-right th whitespace-nowrap">P&amp;L</th>
+                  <th className="px-3 py-2 text-right th whitespace-nowrap">Low</th>
+                  <th className="px-3 py-2 text-right th whitespace-nowrap">High</th>
+                  <th className="px-3 py-2 text-right th whitespace-nowrap">Earnings</th>
+                  <th className="px-3 py-2 text-right th whitespace-nowrap">Analyst</th>
                   <th className="px-3 py-2 w-8" />
                 </tr>
               </thead>
@@ -453,9 +443,9 @@ export default function InventoryForm({
                       </td>
                       <td className={`px-3 py-2.5 text-center ${rowBorder}`}>
                         {h.shares === 0 ? (
-                          <span className="inline-flex items-center text-[10px] font-semibold text-[#d29922] bg-[#d2992215] border border-[#d2992240] px-1.5 py-0.5 rounded">CSP</span>
+                          <span className="badge-csp">CSP</span>
                         ) : (
-                          <span className="inline-flex items-center text-[10px] font-semibold text-[#58a6ff] bg-[#58a6ff15] border border-[#58a6ff40] px-1.5 py-0.5 rounded">CC</span>
+                          <span className="badge-cc">CC</span>
                         )}
                       </td>
                       <td className={`px-3 py-2.5 text-right tabular-nums text-[#c9d1d9] font-medium ${rowBorder}`}>

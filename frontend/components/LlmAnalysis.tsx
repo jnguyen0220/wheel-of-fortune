@@ -161,8 +161,6 @@ function TradesTable({ ccTrades, cspTrades, earningsCalendar, earningsHistory, a
     );
   }
 
-  const erDates = earningsCalendar?.[activeTicker] ?? [];
-  const nextEarnings = erDates.find(e => e.days_until >= 0) ?? erDates[0];
   const historyArr = earningsHistory?.[activeTicker] ?? [];
   const lastResult = historyArr[historyArr.length - 1];
 
@@ -179,11 +177,10 @@ function TradesTable({ ccTrades, cspTrades, earningsCalendar, earningsHistory, a
               <button
                 key={ticker}
                 onClick={() => { if (activeTicker === ticker) { openHealthPopup(ticker); } else { setActiveTicker(ticker); } }}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all ${
-                  activeTicker === ticker
-                    ? "bg-[#30363d] text-[#58a6ff] ring-1 ring-[#484f58]"
-                    : "bg-[#21262d] text-[#8b949e] hover:text-[#c9d1d9] hover:bg-[#30363d] border border-[#30363d]"
-                }`}
+                className={activeTicker === ticker
+                    ? "ticker-tab-active"
+                    : "ticker-tab-inactive"
+                }
                 title={erDot ? `Earnings in ${erDays}d` : activeTicker === ticker ? "Click for health report" : undefined}
               >
                 {ticker}
@@ -197,9 +194,9 @@ function TradesTable({ ccTrades, cspTrades, earningsCalendar, earningsHistory, a
 
         {/* Stats pills */}
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 h-[30px] px-2.5 rounded-md bg-[#0d1117] border border-[#30363d]">
-            <span className="text-[10px] text-[#8b949e] uppercase font-medium">Last</span>
-            <span className="text-xs font-bold text-[#c9d1d9] tabular-nums">${underlying.toFixed(2)}</span>
+          <div className="stat-pill">
+            <span className="stat-pill-label">Last</span>
+            <span className="stat-pill-value">${underlying.toFixed(2)}</span>
           </div>
           {(() => {
             const health = healthData[activeTicker];
@@ -208,10 +205,10 @@ function TradesTable({ ccTrades, cspTrades, earningsCalendar, earningsHistory, a
             return (
               <button
                 onClick={() => openHealthPopup(activeTicker)}
-                className="flex items-center gap-1.5 h-[30px] px-2.5 rounded-md bg-[#0d1117] border border-[#30363d] hover:border-[#8b949e] transition cursor-pointer"
+                className="stat-pill hover:border-[#8b949e] transition cursor-pointer"
                 title="View strengths & concerns"
               >
-                <span className="text-[10px] text-[#8b949e] uppercase font-medium">Health</span>
+                <span className="stat-pill-label">Health</span>
                 <span className={`text-xs font-bold tabular-nums ${scoreColor}`}>{health.health_score}</span>
               </button>
             );
@@ -221,8 +218,8 @@ function TradesTable({ ccTrades, cspTrades, earningsCalendar, earningsHistory, a
             const next = erDates.find(e => e.days_until >= 0) ?? erDates[0];
             if (!next || next.days_until < 0) return null;
             return (
-              <div className="flex items-center gap-1.5 h-[30px] px-2.5 rounded-md bg-[#0d1117] border border-[#30363d]">
-                <span className="text-[10px] text-[#8b949e] uppercase font-medium">ER</span>
+              <div className="stat-pill">
+                <span className="stat-pill-label">ER</span>
                 <span className={`text-xs font-bold tabular-nums ${next.days_until <= 7 ? "text-[#f85149]" : next.days_until <= 14 ? "text-[#d29922]" : "text-[#8b949e]"}`}>{next.days_until === 0 ? "TODAY" : `${next.days_until}d`}</span>
               </div>
             );
@@ -255,7 +252,7 @@ function TradesTable({ ccTrades, cspTrades, earningsCalendar, earningsHistory, a
 
       {/* ── CC / CSP toggle + counts (like Calls | Puts) ── */}
       <div className="px-4 py-2 border-t border-[#30363d] bg-[#0d1117] flex items-center gap-3">
-        <div className="flex bg-[#161b22] border border-[#30363d] rounded p-0.5">
+        <div className="tab-group">
           {([
             { key: "cc" as const, label: "Covered Calls", count: tickerCC.length },
             { key: "csp" as const, label: "Cash-Secured Puts", count: tickerCSP.length },
@@ -553,7 +550,7 @@ export default function LlmAnalysis({ prompt, recommendations, ollamaModels, oll
   }, [recommendations]);
 
   return (
-    <section className="bg-[#161b22] rounded-lg border border-[#30363d] overflow-hidden">
+    <section className="card-lg">
       {/* Header */}
       <div className="px-5 py-3 border-b border-[#30363d] bg-[#0d1117]">
         <div className="flex items-center gap-3">

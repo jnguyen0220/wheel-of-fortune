@@ -4,7 +4,6 @@ import { useState, useEffect, useMemo } from "react";
 import type { OptionsChain, OptionsContract, EarningsCalendar, FinancialHealth } from "@/lib/types";
 import { getFinancialHealth } from "@/lib/api";
 import TickerLink from "./TickerLink";
-import { useHealthPopup } from "./HealthPopupContext";
 
 export interface StrategyFilters {
   dte_min: number;
@@ -53,7 +52,6 @@ export default function OptionsTab({ chains, onRecommendations, recommendationsL
   const [activeExpiration, setActiveExpiration] = useState<string>("");
   const [healthData, setHealthData] = useState<Record<string, FinancialHealth>>({});
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const { openHealthPopup } = useHealthPopup();
 
   const sortedChains = useMemo(
     () => [...chains].sort((a, b) => a.ticker.localeCompare(b.ticker)),
@@ -122,7 +120,7 @@ export default function OptionsTab({ chains, onRecommendations, recommendationsL
 
   if (chains.length === 0) {
     return (
-      <section className="bg-[#161b22] rounded-lg border border-[#30363d] p-12 text-center">
+      <section className="card-lg p-12 text-center">
         <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-[#21262d] flex items-center justify-center">
           <svg className="w-6 h-6 text-[#484f58]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5" />
@@ -139,7 +137,7 @@ export default function OptionsTab({ chains, onRecommendations, recommendationsL
   return (
     <div className="space-y-4">
       {/* ── Strategy Engine ── */}
-      <section className="bg-[#161b22] rounded-lg border border-[#30363d] overflow-hidden">
+      <section className="card-lg">
         {/* Always-visible bar: title, cash, run button, expand toggle */}
         <div className="px-4 py-2.5 flex items-center gap-3 flex-wrap">
           {/* Title + expand toggle */}
@@ -328,7 +326,7 @@ export default function OptionsTab({ chains, onRecommendations, recommendationsL
       </section>
 
       {/* ── Ticker tabs + summary stats ── */}
-      <section className="bg-[#161b22] rounded-lg border border-[#30363d] overflow-hidden">
+      <section className="card-lg">
         <div className="px-4 py-3 flex items-center justify-between flex-wrap gap-3">
           {/* Ticker selector */}
           <div className="flex items-center gap-2">
@@ -340,11 +338,10 @@ export default function OptionsTab({ chains, onRecommendations, recommendationsL
               <button
                 key={chain.ticker}
                 onClick={() => { setActiveTicker(chain.ticker); setActiveExpiration(""); }}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all ${
-                  activeTicker === chain.ticker
-                    ? "bg-[#30363d] text-[#c9d1d9] ring-1 ring-[#484f58]"
-                    : "bg-[#21262d] text-[#8b949e] hover:text-[#c9d1d9] hover:bg-[#30363d] border border-[#30363d]"
-                }`}
+                className={activeTicker === chain.ticker
+                    ? "ticker-tab-active text-[#c9d1d9]"
+                    : "ticker-tab-inactive"
+                }
                 title={erDot ? `Earnings in ${erDays}d` : undefined}
               >
                 {chain.ticker}
@@ -359,9 +356,9 @@ export default function OptionsTab({ chains, onRecommendations, recommendationsL
           {/* Stats pills */}
           {activeChain && (
             <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1.5 h-[30px] px-2.5 rounded-md bg-[#0d1117] border border-[#30363d]">
-                <span className="text-[10px] text-[#8b949e] uppercase font-medium">Last</span>
-                <span className="text-xs font-bold text-[#c9d1d9] tabular-nums">${underlying.toFixed(2)}</span>
+              <div className="stat-pill">
+                <span className="stat-pill-label">Last</span>
+                <span className="stat-pill-value">${underlying.toFixed(2)}</span>
               </div>
               {(() => {
                 const health = healthData[activeTicker];
@@ -369,9 +366,9 @@ export default function OptionsTab({ chains, onRecommendations, recommendationsL
                 const scoreColor = health.health_score >= 80 ? "text-[#3fb950]" : health.health_score >= 65 ? "text-[#56d364]" : health.health_score >= 45 ? "text-[#d29922]" : health.health_score >= 25 ? "text-[#db6d28]" : "text-[#f85149]";
                 return (
                   <div
-                    className="flex items-center gap-1.5 h-[30px] px-2.5 rounded-md bg-[#0d1117] border border-[#30363d]"
+                    className="stat-pill"
                   >
-                    <span className="text-[10px] text-[#8b949e] uppercase font-medium">Health</span>
+                    <span className="stat-pill-label">Health</span>
                     <span className={`text-xs font-bold tabular-nums ${scoreColor}`}>{health.health_score}</span>
                   </div>
                 );
@@ -380,8 +377,8 @@ export default function OptionsTab({ chains, onRecommendations, recommendationsL
                 const total = activeChain.contracts.length;
                 const color = total >= 500 ? "text-[#3fb950]" : total >= 200 ? "text-[#d29922]" : "text-[#f85149]";
                 return (
-                  <div className="flex items-center gap-1.5 h-[30px] px-2.5 rounded-md bg-[#0d1117] border border-[#30363d]" title={`${total} contracts available`}>
-                    <span className="text-[10px] text-[#8b949e] uppercase font-medium">Activity</span>
+                  <div className="stat-pill" title={`${total} contracts available`}>
+                    <span className="stat-pill-label">Activity</span>
                     <span className={`text-xs font-bold tabular-nums ${color}`}>{total}</span>
                   </div>
                 );
@@ -391,17 +388,17 @@ export default function OptionsTab({ chains, onRecommendations, recommendationsL
                 const next = erDates.find(e => e.days_until >= 0) ?? erDates[0];
                 if (!next || next.days_until < 0) return null;
                 return (
-                  <div className="flex items-center gap-1.5 h-[30px] px-2.5 rounded-md bg-[#0d1117] border border-[#30363d]">
-                    <span className="text-[10px] text-[#8b949e] uppercase font-medium">ER</span>
+                  <div className="stat-pill">
+                    <span className="stat-pill-label">ER</span>
                     <span className={`text-xs font-bold tabular-nums ${next.days_until <= 7 ? "text-[#f85149]" : next.days_until <= 14 ? "text-[#d29922]" : "text-[#8b949e]"}`}>{next.days_until === 0 ? "TODAY" : `${next.days_until}d`}</span>
                   </div>
                 );
               })()}
-              <div className="flex items-center gap-1.5 h-[30px] px-2.5 rounded-md bg-[#0d1117] border border-[#30363d]">
-                <span className="text-[10px] text-[#8b949e] uppercase font-medium">P/C</span>
-                <span className="text-xs font-bold text-[#c9d1d9] tabular-nums">{putCallRatio}</span>
+              <div className="stat-pill">
+                <span className="stat-pill-label">P/C</span>
+                <span className="stat-pill-value">{putCallRatio}</span>
               </div>
-              <div className="flex items-center gap-1.5 h-[30px] px-2.5 rounded-md bg-[#0d1117] border border-[#30363d]">
+              <div className="stat-pill">
                 <span className="text-[10px] text-[#238636] uppercase font-medium">Calls</span>
                 <span className="text-xs font-medium text-[#8b949e] tabular-nums">{totalCallContracts}</span>
                 <span className="text-[#30363d] mx-0.5">|</span>
@@ -414,7 +411,7 @@ export default function OptionsTab({ chains, onRecommendations, recommendationsL
       </section>
 
       {/* ── Controls bar: Type toggle + Expiry + DTE slider + Recommendations ── */}
-      <section className="bg-[#161b22] rounded-lg border border-[#30363d] overflow-hidden">
+      <section className="card-lg">
         <div className="px-4 py-3 flex items-center gap-4 flex-wrap">
           {/* Call / Put toggle */}
           <div className="flex rounded-md overflow-hidden border border-[#30363d]">
@@ -474,7 +471,7 @@ export default function OptionsTab({ chains, onRecommendations, recommendationsL
 
       {/* ── No contracts message ── */}
       {expirations.length === 0 && activeChain && (
-        <section className="bg-[#161b22] rounded-lg border border-[#30363d] p-8 text-center">
+        <section className="card-lg p-8 text-center">
           <p className="text-[#8b949e] text-sm">
             No {activeType === "CALL" ? "call" : "put"} contracts found for <span className="font-semibold text-[#c9d1d9]">{activeTicker}</span>.
           </p>
@@ -483,8 +480,7 @@ export default function OptionsTab({ chains, onRecommendations, recommendationsL
 
       {/* ── Options chain table ── */}
       {activeContracts.length > 0 && (
-        <section className="bg-[#161b22] rounded-lg border border-[#30363d] overflow-hidden">
-          {/* Table header bar */}
+        <section className="card-lg">
           <div className="px-4 py-2.5 bg-[#161b22] border-b border-[#21262d] flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className={`inline-block w-2 h-2 rounded-full ${activeType === "CALL" ? "bg-[#238636]" : "bg-[#da3633]"}`} />

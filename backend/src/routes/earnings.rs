@@ -5,22 +5,25 @@
 //! by querying Yahoo Finance's quoteSummary modules.
 
 use axum::{
-    extract::Query,
+    extract::{Query, State},
     response::IntoResponse,
     routing::get,
     Json, Router,
 };
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::sync::Arc;
 use tracing::warn;
 
-use crate::adapters::yahoo_finance::{acquire_crumb, fetch_earnings_calendar, fetch_earnings_history};
+use crate::adapters::yahoo_finance::{fetch_earnings_calendar, fetch_earnings_history};
 use crate::models::{EarningsCalendar, EarningsResult};
+use crate::AppState;
 
-pub fn router() -> Router {
+pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/calendar", get(get_earnings_calendar))
         .route("/history", get(get_earnings_history))
+        .with_state(state)
 }
 
 #[derive(Deserialize)]
@@ -29,6 +32,7 @@ struct TickersQuery {
 }
 
 async fn get_earnings_calendar(
+    State(state): State<Arc<AppState>>,
     Query(query): Query<TickersQuery>,
 ) -> impl IntoResponse {
     let tickers: Vec<String> = query
@@ -38,16 +42,34 @@ async fn get_earnings_calendar(
         .filter(|t| !t.is_empty())
         .collect();
 
-    let session = acquire_crumb().await;
+    let mut result: HashMap<String, Vec<EarningsCalendar>> = HashMap::new();
+    let mut uncached: Vec<String> = Vec::new();
+
+    {
+        let mut cache = state.earnings_calendar_cache.write().await;
+        for ticker in &tickers {
+            if let Some(cached) = cache.get(ticker) {
+                result.insert(ticker.clone(), cached);
+            } else {
+                uncached.push(ticker.clone());
+            }
+        }
+    }
+
+    if uncached.is_empty() {
+        return Json(result);
+    }
+
+    let session = state.yahoo.get().await;
     let (client, crumb) = match session {
         Ok(s) => s,
         Err(e) => {
             warn!(error = %e, "Failed to acquire Yahoo Finance session for earnings calendar");
-            return Json(HashMap::<String, Vec<EarningsCalendar>>::new());
+            return Json(result);
         }
     };
 
-    let tasks: Vec<_> = tickers
+    let tasks: Vec<_> = uncached
         .into_iter()
         .map(|ticker| {
             let client = client.clone();
@@ -64,9 +86,10 @@ async fn get_earnings_calendar(
         })
         .collect();
 
-    let mut result: HashMap<String, Vec<EarningsCalendar>> = HashMap::new();
+    let mut cache = state.earnings_calendar_cache.write().await;
     for task in tasks {
         if let Ok(Some((ticker, data))) = task.await {
+            cache.insert(ticker.clone(), data.clone());
             result.insert(ticker, data);
         }
     }
@@ -75,6 +98,7 @@ async fn get_earnings_calendar(
 }
 
 async fn get_earnings_history(
+    State(state): State<Arc<AppState>>,
     Query(query): Query<TickersQuery>,
 ) -> impl IntoResponse {
     let tickers: Vec<String> = query
@@ -84,16 +108,34 @@ async fn get_earnings_history(
         .filter(|t| !t.is_empty())
         .collect();
 
-    let session = acquire_crumb().await;
+    let mut result: HashMap<String, Vec<EarningsResult>> = HashMap::new();
+    let mut uncached: Vec<String> = Vec::new();
+
+    {
+        let mut cache = state.earnings_history_cache.write().await;
+        for ticker in &tickers {
+            if let Some(cached) = cache.get(ticker) {
+                result.insert(ticker.clone(), cached);
+            } else {
+                uncached.push(ticker.clone());
+            }
+        }
+    }
+
+    if uncached.is_empty() {
+        return Json(result);
+    }
+
+    let session = state.yahoo.get().await;
     let (client, crumb) = match session {
         Ok(s) => s,
         Err(e) => {
             warn!(error = %e, "Failed to acquire Yahoo Finance session for earnings history");
-            return Json(HashMap::<String, Vec<EarningsResult>>::new());
+            return Json(result);
         }
     };
 
-    let tasks: Vec<_> = tickers
+    let tasks: Vec<_> = uncached
         .into_iter()
         .map(|ticker| {
             let client = client.clone();
@@ -110,9 +152,10 @@ async fn get_earnings_history(
         })
         .collect();
 
-    let mut result: HashMap<String, Vec<EarningsResult>> = HashMap::new();
+    let mut cache = state.earnings_history_cache.write().await;
     for task in tasks {
         if let Ok(Some((ticker, data))) = task.await {
+            cache.insert(ticker.clone(), data.clone());
             result.insert(ticker, data);
         }
     }

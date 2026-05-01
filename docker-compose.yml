@@ -6,12 +6,8 @@ services:
     container_name: wheel-backend
     environment:
       BIND_ADDR: 0.0.0.0:8080
-      DATA_SOURCE: ${DATA_SOURCE:-yahoo}
-      MOCK_DATA_DIR: /data/mock
     ports:
       - "8080:8080"
-    volumes:
-      - ./data/mock:/data/mock:ro
     restart: unless-stopped
 
   frontend:

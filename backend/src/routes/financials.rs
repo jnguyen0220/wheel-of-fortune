@@ -14,10 +14,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::warn;
 
-use crate::adapters::yahoo_finance::{acquire_crumb, fetch_financial_health};
+use crate::adapters::yahoo_finance::fetch_financial_health;
 use crate::models::FinancialHealth;
 use crate::AppState;
-
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new().route("/", get(get_financials)).with_state(state)
 }
@@ -55,7 +54,7 @@ async fn get_financials(
 
     // Fetch uncached tickers from Yahoo Finance.
     if !uncached_tickers.is_empty() {
-        let session = acquire_crumb().await;
+        let session = state.yahoo.get().await;
         let (client, crumb) = match session {
             Ok(s) => s,
             Err(e) => {

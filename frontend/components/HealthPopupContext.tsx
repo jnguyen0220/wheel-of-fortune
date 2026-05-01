@@ -195,7 +195,7 @@ export function HealthPopupProvider({ children }: { children: React.ReactNode })
 
                 {/* Tab navigation */}
                 <div className="bg-[#0d1117] px-6 py-2.5 border-b border-[#21262d]">
-                  <div className="flex bg-[#161b22] border border-[#30363d] rounded-md p-0.5">
+                  <div className="tab-group rounded-md">
                     {tabs.map((tab) => (
                       <button
                         key={tab.key}

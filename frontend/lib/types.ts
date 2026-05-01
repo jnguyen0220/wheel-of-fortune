@@ -88,7 +88,6 @@ export interface RecommendationResponse {
   recommendations: WheelRecommendation[];
   /** LLM prompt that asks the model to rank the pre-computed trades. */
   llm_prompt: LlmPrompt;
-  data_source: string;
   /** Tickers that were requested but had no options chain data. */
   tickers_without_options: string[];
 }

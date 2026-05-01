@@ -1,66 +1,79 @@
 use std::collections::HashMap;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
-use crate::models::FinancialHealth;
+/// A generic fixed-capacity TTL cache.
+///
+/// - Entries expire after `ttl` and are treated as missing on lookup.
+/// - When full, the oldest (least-recently-accessed) entry is evicted.
+pub struct TtlCache<V> {
+    entries: HashMap<String, CacheEntry<V>>,
+    max_capacity: usize,
+    ttl: Duration,
+}
 
-const MAX_CAPACITY: usize = 20;
-
-struct CacheEntry {
-    data: FinancialHealth,
+struct CacheEntry<V> {
+    data: V,
     last_accessed: Instant,
+    inserted_at: Instant,
 }
 
-/// A fixed-capacity cache (20 items) for FinancialHealth lookups.
-/// When full, the oldest (least-recently-accessed) entry is evicted.
-pub struct FinancialHealthCache {
-    entries: HashMap<String, CacheEntry>,
-}
-
-impl FinancialHealthCache {
-    pub fn new() -> Self {
+impl<V: Clone> TtlCache<V> {
+    pub fn new(max_capacity: usize, ttl: Duration) -> Self {
         Self {
-            entries: HashMap::with_capacity(MAX_CAPACITY),
+            entries: HashMap::with_capacity(max_capacity),
+            max_capacity,
+            ttl,
         }
     }
 
-    /// Look up a ticker. If found, updates the timestamp and returns a clone.
-    pub fn get(&mut self, ticker: &str) -> Option<FinancialHealth> {
-        if let Some(entry) = self.entries.get_mut(ticker) {
-            entry.last_accessed = Instant::now();
+    /// Look up a key. Returns `None` if missing or expired.
+    pub fn get(&mut self, key: &str) -> Option<V> {
+        let now = Instant::now();
+        if let Some(entry) = self.entries.get_mut(key) {
+            if now.duration_since(entry.inserted_at) > self.ttl {
+                self.entries.remove(key);
+                return None;
+            }
+            entry.last_accessed = now;
             Some(entry.data.clone())
         } else {
             None
         }
     }
 
-    /// Insert or update an entry. If the ticker already exists, update data and
-    /// timestamp. If the cache is full, evict the oldest entry first.
-    pub fn insert(&mut self, ticker: String, data: FinancialHealth) {
-        if self.entries.contains_key(&ticker) {
-            let entry = self.entries.get_mut(&ticker).unwrap();
+    /// Insert or update an entry. Evicts expired and oldest entries if at capacity.
+    pub fn insert(&mut self, key: String, data: V) {
+        let now = Instant::now();
+
+        if self.entries.contains_key(&key) {
+            let entry = self.entries.get_mut(&key).unwrap();
             entry.data = data;
-            entry.last_accessed = Instant::now();
+            entry.last_accessed = now;
+            entry.inserted_at = now;
             return;
         }
 
-        if self.entries.len() >= MAX_CAPACITY {
-            // Find and remove the oldest entry.
+        // Evict expired entries first.
+        self.entries.retain(|_, e| now.duration_since(e.inserted_at) <= self.ttl);
+
+        if self.entries.len() >= self.max_capacity {
             let oldest_key = self
                 .entries
                 .iter()
                 .min_by_key(|(_, e)| e.last_accessed)
                 .map(|(k, _)| k.clone());
 
-            if let Some(key) = oldest_key {
-                self.entries.remove(&key);
+            if let Some(k) = oldest_key {
+                self.entries.remove(&k);
             }
         }
 
         self.entries.insert(
-            ticker,
+            key,
             CacheEntry {
                 data,
-                last_accessed: Instant::now(),
+                last_accessed: now,
+                inserted_at: now,
             },
         );
     }
