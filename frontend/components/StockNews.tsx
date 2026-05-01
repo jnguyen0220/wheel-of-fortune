@@ -39,14 +39,10 @@ export default function StockNews({ onAddTicker, onAddTickers, onRemoveTicker, e
     const map = new Map<string, NewsItem[]>();
     for (const item of news) {
       const list = map.get(item.ticker) || [];
-      list.push(item);
+      if (list.length < 5) list.push(item);
       map.set(item.ticker, list);
     }
-    return [...map.entries()].sort((a, b) => {
-      const aMax = Math.max(...a[1].map(n => n.published_at));
-      const bMax = Math.max(...b[1].map(n => n.published_at));
-      return bMax - aMax;
-    });
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   }, [news]);
 
   function timeAgo(ts: number): string {

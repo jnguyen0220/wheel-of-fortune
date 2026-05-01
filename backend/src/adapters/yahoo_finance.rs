@@ -988,7 +988,9 @@ struct YahooFinancialData {
 #[serde(rename_all = "camelCase")]
 struct YahooKeyStatistics {
     trailing_eps: Option<YahooNumeric>,
+    #[serde(alias = "forwardPE")]
     forward_pe: Option<YahooNumeric>,
+    #[serde(alias = "trailingPE")]
     trailing_pe: Option<YahooNumeric>,
     price_to_book: Option<YahooNumeric>,
     peg_ratio: Option<YahooNumeric>,

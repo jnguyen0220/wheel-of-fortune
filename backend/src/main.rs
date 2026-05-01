@@ -1,4 +1,5 @@
 mod adapters;
+mod cache;
 mod llm;
 mod models;
 mod routes;
@@ -15,6 +16,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use adapters::{json_adapter::JsonAdapter, OptionsDataProvider};
 use adapters::yahoo_finance::YahooFinanceAdapter;
+use cache::FinancialHealthCache;
 use models::StockHolding;
 
 // ── Application state ─────────────────────────────────────────────────────────
@@ -24,6 +26,8 @@ pub struct AppState {
     pub inventory: RwLock<Vec<StockHolding>>,
     /// Options data provider (JSON mock or live web API).
     pub options_provider: Arc<dyn OptionsDataProvider>,
+    /// Cache for financial health lookups (strengths/concerns), max 20 items.
+    pub financials_cache: RwLock<FinancialHealthCache>,
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────
@@ -69,6 +73,7 @@ async fn main() -> Result<()> {
     let state = Arc::new(AppState {
         inventory: RwLock::new(Vec::new()),
         options_provider,
+        financials_cache: RwLock::new(FinancialHealthCache::new()),
     });
 
     // CORS – allow all origins in development. Tighten for production.

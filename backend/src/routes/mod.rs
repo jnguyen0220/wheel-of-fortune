@@ -30,10 +30,10 @@ fn api_routes(state: Arc<AppState>) -> Router {
         .nest("/market-data", market_data::router(state.clone()))
         .nest("/prices", prices::router(state.clone()))
         .nest("/options", options::router(state.clone()))
-        .nest("/recommendations", recommendations::router(state))
+        .nest("/recommendations", recommendations::router(state.clone()))
         .nest("/earnings", earnings::router())
         .nest("/analyst-trends", analyst::router())
-        .nest("/financials", financials::router())
+        .nest("/financials", financials::router(state.clone()))
         .nest("/screener", screener::router())
         .nest("/news", news::router())
 }
