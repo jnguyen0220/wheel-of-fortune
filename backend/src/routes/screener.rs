@@ -18,15 +18,7 @@ use crate::adapters::yahoo_finance::fetch_screener_data;
 use crate::models::ScreenerCandidate;
 use crate::AppState;
 
-/// A curated list of well-known, liquid stocks suitable for the wheel strategy.
-/// These have active options markets and are commonly wheeled.
-const DEFAULT_TICKERS: &[&str] = &[
-    "AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA",
-    "AMD", "INTC", "NFLX", "DIS", "BA", "JPM", "BAC", "GS",
-    "V", "MA", "PFE", "JNJ", "UNH", "XOM", "CVX", "KO", "PEP",
-    "WMT", "HD", "MCD", "NKE", "SBUX", "PYPL", "SQ", "SOFI",
-    "PLTR", "COIN", "HOOD", "F", "GM", "T", "VZ", "CSCO",
-];
+use super::common::parse_tickers_or_default;
 
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new().route("/", get(screen_stocks)).with_state(state)
@@ -44,14 +36,7 @@ async fn screen_stocks(
     State(state): State<Arc<AppState>>,
     Query(query): Query<ScreenerQuery>,
 ) -> impl IntoResponse {
-    let tickers: Vec<String> = match query.tickers {
-        Some(t) if !t.trim().is_empty() => t
-            .split(',')
-            .map(|s| s.trim().to_uppercase())
-            .filter(|s| !s.is_empty())
-            .collect(),
-        _ => DEFAULT_TICKERS.iter().map(|s| s.to_string()).collect(),
-    };
+    let tickers = parse_tickers_or_default(query.tickers.as_deref());
 
     let min_score = query.min_score.unwrap_or(30);
 

@@ -638,25 +638,40 @@ async fn fetch_yahoo_options_chain_with_session(
         anyhow::bail!("No future expirations found for {ticker_upper}");
     }
 
-    let mut all_contracts: Vec<OptionsContract> = Vec::new();
+    // Fetch all expirations concurrently (major latency improvement over sequential).
+    let tasks: Vec<_> = target_ts
+        .into_iter()
+        .map(|ts| {
+            let client = cookie_client.clone();
+            let ticker = ticker_upper.clone();
+            let crumb = crumb.to_string();
+            tokio::spawn(async move {
+                fetch_expiration_data(&client, &ticker, &crumb, ts).await
+            })
+        })
+        .collect();
 
-    for ts in target_ts {
-        match fetch_expiration_data(cookie_client, &ticker_upper, crumb, ts).await {
-            Ok((calls, puts, ul)) => {
-                let underlying = if ul > 0.0 { ul } else { underlying };
+    let mut all_contracts: Vec<OptionsContract> = Vec::new();
+    for task in tasks {
+        match task.await {
+            Ok(Ok((calls, puts, ul))) => {
+                let ul_price = if ul > 0.0 { ul } else { underlying };
                 for raw in puts {
-                    if let Some(c) = map_yahoo_contract(raw, OptionType::Put, &ticker_upper, underlying) {
+                    if let Some(c) = map_yahoo_contract(raw, OptionType::Put, &ticker_upper, ul_price) {
                         all_contracts.push(c);
                     }
                 }
                 for raw in calls {
-                    if let Some(c) = map_yahoo_contract(raw, OptionType::Call, &ticker_upper, underlying) {
+                    if let Some(c) = map_yahoo_contract(raw, OptionType::Call, &ticker_upper, ul_price) {
                         all_contracts.push(c);
                     }
                 }
             }
+            Ok(Err(e)) => {
+                debug!(error = %e, "Failed to fetch Yahoo options for expiration, skipping");
+            }
             Err(e) => {
-                debug!(ts, error = %e, "Failed to fetch Yahoo options for expiration, skipping");
+                debug!(error = %e, "Task panicked fetching options expiration");
             }
         }
     }

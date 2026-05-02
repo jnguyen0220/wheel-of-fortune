@@ -17,6 +17,7 @@ import {
   getAnalystTrends,
   getNews,
 } from "@/lib/api";
+import { healthScoreBadgeColor, verdictBadgeColor } from "@/lib/format";
 
 interface HealthPopupContextValue {
   openHealthPopup: (ticker: string) => void;
@@ -122,25 +123,23 @@ export function HealthPopupProvider({ children }: { children: React.ReactNode })
                         <div className="flex items-center gap-3">
                           <h2 className="text-base font-bold text-[#f0f6fc] tracking-tight">{activeTicker}</h2>
                           {health && (
-                            <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                              health.health_score >= 80 ? "bg-[#3fb950]/15 text-[#3fb950]" :
-                              health.health_score >= 65 ? "bg-[#56d364]/15 text-[#56d364]" :
-                              health.health_score >= 45 ? "bg-[#d29922]/15 text-[#d29922]" :
-                              health.health_score >= 25 ? "bg-[#db6d28]/15 text-[#db6d28]" :
-                              "bg-[#f85149]/15 text-[#f85149]"
-                            }`}>
+                            <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${healthScoreBadgeColor(health.health_score)}`}>
                               <span className="tabular-nums">{health.health_score}</span>
                               <span className="opacity-60">/100</span>
                             </div>
+                          )}
+                          {health?.verdict && (
+                            <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold ${verdictBadgeColor(health.verdict)}`}>
+                              {health.verdict}
+                            </span>
                           )}
                         </div>
                         <div className="flex items-center gap-2 mt-0.5">
                           {health?.name && (
                             <span className="text-xs text-[#8b949e]">{health.name}</span>
                           )}
-                          {health?.name && health?.verdict && <span className="text-[#30363d]">·</span>}
-                          {health && (
-                            <span className="text-xs text-[#8b949e]">{health.verdict}</span>
+                          {health?.sector && (
+                            <><span className="text-[#30363d]">·</span><span className="text-xs text-[#8b949e]">{health.sector}</span></>
                           )}
                         </div>
                       </div>

@@ -1,5 +1,6 @@
 pub mod analyst;
 pub mod batch;
+pub mod common;
 pub mod earnings;
 pub mod financials;
 pub mod inventory;

@@ -4,6 +4,7 @@ import React, { useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import type { WheelRecommendation, EarningsCalendar, EarningsResult, AnalystTrend, FinancialHealth } from "@/lib/types";
 import { getFinancialHealth } from "@/lib/api";
+import { healthScoreColor, earningsDotInfo, nextEarningsDays, earningsDaysColor, earningsDaysLabel } from "@/lib/format";
 import type { StrategyFilters } from "./OptionsTab";
 import { DEFAULT_FILTERS } from "./OptionsTab";
 
@@ -128,9 +129,7 @@ function TradesTable({ ccTrades, cspTrades, earningsCalendar, earningsHistory, a
       <div className="px-4 py-3 flex items-center justify-between flex-wrap gap-3 border-b border-[#21262d]">
         <div className="flex items-center gap-2">
           {allTickers.map((ticker) => {
-              const erDays = (earningsCalendar?.[ticker] ?? []).find(e => e.days_until >= 0)?.days_until;
-              const erDot = erDays !== undefined && erDays <= 14;
-              const erColor = erDays !== undefined && erDays <= 7 ? "bg-[#f85149]" : "bg-[#d29922]";
+              const dot = earningsDotInfo(earningsCalendar, ticker);
               return (
               <button
                 key={ticker}
@@ -139,11 +138,11 @@ function TradesTable({ ccTrades, cspTrades, earningsCalendar, earningsHistory, a
                     ? "ticker-tab-active"
                     : "ticker-tab-inactive"
                 }
-                title={erDot ? `Earnings in ${erDays}d` : undefined}
+                title={dot ? `Earnings in ${dot.days}d` : undefined}
               >
                 {ticker}
-                {erDot && (
-                  <span className={`inline-block w-1.5 h-1.5 rounded-full animate-pulse opacity-90 ${erColor}`} />
+                {dot && (
+                  <span className={`inline-block w-1.5 h-1.5 rounded-full animate-pulse opacity-90 ${dot.color}`} />
                 )}
               </button>
               );
@@ -159,22 +158,20 @@ function TradesTable({ ccTrades, cspTrades, earningsCalendar, earningsHistory, a
           {(() => {
             const health = healthData[activeTicker];
             if (!health) return null;
-            const scoreColor = health.health_score >= 80 ? "text-[#3fb950]" : health.health_score >= 65 ? "text-[#56d364]" : health.health_score >= 45 ? "text-[#d29922]" : health.health_score >= 25 ? "text-[#db6d28]" : "text-[#f85149]";
             return (
               <div className="stat-pill">
                 <span className="stat-pill-label">Health</span>
-                <span className={`text-xs font-bold tabular-nums ${scoreColor}`}>{health.health_score}</span>
+                <span className={`text-xs font-bold tabular-nums ${healthScoreColor(health.health_score)}`}>{health.health_score}</span>
               </div>
             );
           })()}
           {(() => {
-            const erDates = earningsCalendar?.[activeTicker] ?? [];
-            const next = erDates.find(e => e.days_until >= 0) ?? erDates[0];
-            if (!next || next.days_until < 0) return null;
+            const days = nextEarningsDays(earningsCalendar, activeTicker);
+            if (days === undefined) return null;
             return (
               <div className="stat-pill">
                 <span className="stat-pill-label">ER</span>
-                <span className={`text-xs font-bold tabular-nums ${next.days_until <= 7 ? "text-[#f85149]" : next.days_until <= 14 ? "text-[#d29922]" : "text-[#8b949e]"}`}>{next.days_until === 0 ? "TODAY" : `${next.days_until}d`}</span>
+                <span className={`text-xs font-bold tabular-nums ${earningsDaysColor(days)}`}>{earningsDaysLabel(days)}</span>
               </div>
             );
           })()}

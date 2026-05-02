@@ -9,12 +9,13 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use serde::Deserialize;
 use std::{collections::HashMap, sync::Arc};
 use tracing::warn;
 
 use crate::models::StockMarketData;
 use crate::AppState;
+
+use super::common::{TickersQuery, parse_tickers};
 
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
@@ -22,21 +23,11 @@ pub fn router(state: Arc<AppState>) -> Router {
         .with_state(state)
 }
 
-#[derive(Deserialize)]
-struct MarketDataQuery {
-    tickers: String,
-}
-
 async fn get_market_data(
     State(state): State<Arc<AppState>>,
-    Query(query): Query<MarketDataQuery>,
+    Query(query): Query<TickersQuery>,
 ) -> impl IntoResponse {
-    let tickers: Vec<String> = query
-        .tickers
-        .split(',')
-        .map(|t| t.trim().to_uppercase())
-        .filter(|t| !t.is_empty())
-        .collect();
+    let tickers = parse_tickers(&query.tickers);
 
     let mut result: HashMap<String, StockMarketData> = HashMap::new();
     let mut uncached: Vec<String> = Vec::new();

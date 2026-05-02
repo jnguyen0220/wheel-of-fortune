@@ -140,6 +140,7 @@ export interface AnalystTrend {
 export interface FinancialHealth {
   ticker: string;
   name: string | null;
+  sector: string | null;
   revenue: number | null;
   revenue_growth: number | null;
   net_income: number | null;

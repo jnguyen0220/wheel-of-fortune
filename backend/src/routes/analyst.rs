@@ -9,7 +9,6 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::warn;
@@ -18,25 +17,17 @@ use crate::adapters::yahoo_finance::fetch_recommendation_trend;
 use crate::models::AnalystTrend;
 use crate::AppState;
 
+use super::common::{TickersQuery, parse_tickers};
+
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new().route("/", get(get_analyst_trends)).with_state(state)
-}
-
-#[derive(Deserialize)]
-struct TickersQuery {
-    tickers: String,
 }
 
 async fn get_analyst_trends(
     State(state): State<Arc<AppState>>,
     Query(query): Query<TickersQuery>,
 ) -> impl IntoResponse {
-    let tickers: Vec<String> = query
-        .tickers
-        .split(',')
-        .map(|t| t.trim().to_uppercase())
-        .filter(|t| !t.is_empty())
-        .collect();
+    let tickers = parse_tickers(&query.tickers);
 
     let mut result: HashMap<String, Vec<AnalystTrend>> = HashMap::new();
     let mut uncached: Vec<String> = Vec::new();

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import type { StockHolding, StockHoldingInput, StockMarketData, EarningsCalendar, EarningsResult, AnalystTrend, FinancialHealth } from "@/lib/types";
 import { addHolding, deleteHolding, getBatchData } from "@/lib/api";
+import { healthScoreColor } from "@/lib/format";
 import Screener from "./Screener";
 import StockNews from "./StockNews";
 import TickerLink from "./TickerLink";
@@ -433,9 +434,8 @@ export default function InventoryForm({
                         {(() => {
                           const health = healthData[h.ticker];
                           if (!health) return <span className="text-[#484f58] text-[10px]">—</span>;
-                          const color = health.health_score >= 80 ? "text-[#3fb950]" : health.health_score >= 65 ? "text-[#56d364]" : health.health_score >= 45 ? "text-[#d29922]" : health.health_score >= 25 ? "text-[#db6d28]" : "text-[#f85149]";
                           return (
-                            <span className={`text-[10px] font-bold tabular-nums ${color}`}>
+                            <span className={`text-[10px] font-bold tabular-nums ${healthScoreColor(health.health_score)}`}>
                               {health.health_score}
                             </span>
                           );

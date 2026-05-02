@@ -16,22 +16,10 @@ use tracing::warn;
 
 use crate::AppState;
 
-const DEFAULT_TICKERS: &[&str] = &[
-    "AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA",
-    "AMD", "INTC", "NFLX", "DIS", "BA", "JPM", "BAC", "GS",
-    "V", "MA", "PFE", "JNJ", "UNH", "XOM", "CVX", "KO", "PEP",
-    "WMT", "HD", "MCD", "NKE", "SBUX", "PYPL", "SQ", "SOFI",
-    "PLTR", "COIN", "HOOD", "F", "GM", "T", "VZ", "CSCO",
-];
+use super::common::{parse_tickers_or_default, OptionalTickersQuery};
 
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new().route("/", get(get_news)).with_state(state)
-}
-
-#[derive(Deserialize)]
-struct NewsQuery {
-    /// Comma-separated tickers. If omitted, uses a default list.
-    tickers: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -59,16 +47,9 @@ struct YahooNewsItem {
 
 async fn get_news(
     State(state): State<Arc<AppState>>,
-    Query(query): Query<NewsQuery>,
+    Query(query): Query<OptionalTickersQuery>,
 ) -> impl IntoResponse {
-    let tickers: Vec<String> = match query.tickers {
-        Some(t) if !t.trim().is_empty() => t
-            .split(',')
-            .map(|s| s.trim().to_uppercase())
-            .filter(|s| !s.is_empty())
-            .collect(),
-        _ => DEFAULT_TICKERS.iter().map(|s| s.to_string()).collect(),
-    };
+    let tickers = parse_tickers_or_default(query.tickers.as_deref());
 
     let mut all_news: Vec<NewsItem> = Vec::new();
     let mut uncached: Vec<String> = Vec::new();

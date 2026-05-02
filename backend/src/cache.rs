@@ -26,7 +26,22 @@ impl<V: Clone> TtlCache<V> {
         }
     }
 
+    /// Look up a key without mutating the cache. Returns `None` if missing or expired.
+    /// Suitable for use under a read lock.
+    pub fn peek(&self, key: &str) -> Option<V> {
+        let now = Instant::now();
+        if let Some(entry) = self.entries.get(key) {
+            if now.duration_since(entry.inserted_at) > self.ttl {
+                return None;
+            }
+            Some(entry.data.clone())
+        } else {
+            None
+        }
+    }
+
     /// Look up a key. Returns `None` if missing or expired.
+    /// Updates last_accessed for LRU eviction.
     pub fn get(&mut self, key: &str) -> Option<V> {
         let now = Instant::now();
         if let Some(entry) = self.entries.get_mut(key) {

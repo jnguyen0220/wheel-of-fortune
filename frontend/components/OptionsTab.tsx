@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import type { OptionsChain, OptionsContract, EarningsCalendar, FinancialHealth } from "@/lib/types";
 import { getFinancialHealth } from "@/lib/api";
+import { healthScoreColor, earningsDotInfo, nextEarningsDays, earningsDaysColor, earningsDaysLabel } from "@/lib/format";
 import TickerLink from "./TickerLink";
 
 export interface StrategyFilters {
@@ -129,9 +130,7 @@ export default function OptionsTab({ chains, earningsCalendar }: Props) {
           {/* Ticker selector */}
           <div className="flex items-center gap-2">
             {sortedChains.map((chain) => {
-              const erDays = (earningsCalendar?.[chain.ticker] ?? []).find(e => e.days_until >= 0)?.days_until;
-              const erDot = erDays !== undefined && erDays <= 14;
-              const erColor = erDays !== undefined && erDays <= 7 ? "bg-[#f85149]" : "bg-[#d29922]";
+              const dot = earningsDotInfo(earningsCalendar, chain.ticker);
               return (
               <button
                 key={chain.ticker}
@@ -140,11 +139,11 @@ export default function OptionsTab({ chains, earningsCalendar }: Props) {
                     ? "ticker-tab-active text-[#c9d1d9]"
                     : "ticker-tab-inactive"
                 }
-                title={erDot ? `Earnings in ${erDays}d` : undefined}
+                title={dot ? `Earnings in ${dot.days}d` : undefined}
               >
                 {chain.ticker}
-                {erDot && (
-                  <span className={`inline-block w-1.5 h-1.5 rounded-full animate-pulse opacity-90 ${erColor}`} />
+                {dot && (
+                  <span className={`inline-block w-1.5 h-1.5 rounded-full animate-pulse opacity-90 ${dot.color}`} />
                 )}
               </button>
               );
@@ -161,13 +160,12 @@ export default function OptionsTab({ chains, earningsCalendar }: Props) {
               {(() => {
                 const health = healthData[activeTicker];
                 if (!health) return null;
-                const scoreColor = health.health_score >= 80 ? "text-[#3fb950]" : health.health_score >= 65 ? "text-[#56d364]" : health.health_score >= 45 ? "text-[#d29922]" : health.health_score >= 25 ? "text-[#db6d28]" : "text-[#f85149]";
                 return (
                   <div
                     className="stat-pill"
                   >
                     <span className="stat-pill-label">Health</span>
-                    <span className={`text-xs font-bold tabular-nums ${scoreColor}`}>{health.health_score}</span>
+                    <span className={`text-xs font-bold tabular-nums ${healthScoreColor(health.health_score)}`}>{health.health_score}</span>
                   </div>
                 );
               })()}
@@ -182,13 +180,12 @@ export default function OptionsTab({ chains, earningsCalendar }: Props) {
                 );
               })()}
               {(() => {
-                const erDates = earningsCalendar?.[activeTicker] ?? [];
-                const next = erDates.find(e => e.days_until >= 0) ?? erDates[0];
-                if (!next || next.days_until < 0) return null;
+                const days = nextEarningsDays(earningsCalendar, activeTicker);
+                if (days === undefined) return null;
                 return (
                   <div className="stat-pill">
                     <span className="stat-pill-label">ER</span>
-                    <span className={`text-xs font-bold tabular-nums ${next.days_until <= 7 ? "text-[#f85149]" : next.days_until <= 14 ? "text-[#d29922]" : "text-[#8b949e]"}`}>{next.days_until === 0 ? "TODAY" : `${next.days_until}d`}</span>
+                    <span className={`text-xs font-bold tabular-nums ${earningsDaysColor(days)}`}>{earningsDaysLabel(days)}</span>
                   </div>
                 );
               })()}

@@ -10,7 +10,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::warn;
@@ -22,13 +22,10 @@ use crate::adapters::yahoo_finance::{
 use crate::models::{AnalystTrend, EarningsCalendar, EarningsResult, FinancialHealth, StockMarketData};
 use crate::AppState;
 
+use super::common::{TickersQuery, parse_tickers};
+
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new().route("/", get(get_batch)).with_state(state)
-}
-
-#[derive(Deserialize)]
-struct BatchQuery {
-    tickers: String,
 }
 
 #[derive(Serialize)]
@@ -42,14 +39,9 @@ struct BatchResponse {
 
 async fn get_batch(
     State(state): State<Arc<AppState>>,
-    Query(query): Query<BatchQuery>,
+    Query(query): Query<TickersQuery>,
 ) -> impl IntoResponse {
-    let tickers: Vec<String> = query
-        .tickers
-        .split(',')
-        .map(|t| t.trim().to_uppercase())
-        .filter(|t| !t.is_empty())
-        .collect();
+    let tickers = parse_tickers(&query.tickers);
 
     let mut market_data: HashMap<String, StockMarketData> = HashMap::new();
     let mut earnings_calendar: HashMap<String, Vec<EarningsCalendar>> = HashMap::new();

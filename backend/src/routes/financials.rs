@@ -9,7 +9,6 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::warn;
@@ -17,25 +16,18 @@ use tracing::warn;
 use crate::adapters::yahoo_finance::fetch_financial_health;
 use crate::models::FinancialHealth;
 use crate::AppState;
+
+use super::common::{TickersQuery, parse_tickers};
+
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new().route("/", get(get_financials)).with_state(state)
-}
-
-#[derive(Deserialize)]
-struct TickersQuery {
-    tickers: String,
 }
 
 async fn get_financials(
     State(state): State<Arc<AppState>>,
     Query(query): Query<TickersQuery>,
 ) -> impl IntoResponse {
-    let tickers: Vec<String> = query
-        .tickers
-        .split(',')
-        .map(|t| t.trim().to_uppercase())
-        .filter(|t| !t.is_empty())
-        .collect();
+    let tickers = parse_tickers(&query.tickers);
 
     let mut result: HashMap<String, FinancialHealth> = HashMap::new();
     let mut uncached_tickers: Vec<String> = Vec::new();
