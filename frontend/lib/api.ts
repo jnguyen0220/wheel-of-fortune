@@ -56,6 +56,16 @@ export async function addHolding(
   });
 }
 
+export async function updateHolding(
+  id: string,
+  input: StockHoldingInput,
+): Promise<StockHolding> {
+  return apiFetch<StockHolding>(`/api/inventory/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
 export async function deleteHolding(id: string): Promise<void> {
   await apiFetch<void>(`/api/inventory/${id}`, { method: "DELETE" });
 }

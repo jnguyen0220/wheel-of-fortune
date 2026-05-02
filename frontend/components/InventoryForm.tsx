@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { StockHolding, StockHoldingInput, StockMarketData, EarningsCalendar, EarningsResult, AnalystTrend, FinancialHealth } from "@/lib/types";
-import { addHolding, deleteHolding, getBatchData } from "@/lib/api";
+import { addHolding, deleteHolding, updateHolding, getBatchData } from "@/lib/api";
 import { healthScoreColor } from "@/lib/format";
 import Screener from "./Screener";
 import StockNews from "./StockNews";
@@ -48,6 +48,11 @@ export default function InventoryForm({
   const [analystTrends, setAnalystTrends] = useState<Record<string, AnalystTrend[]>>({});
   const [healthData, setHealthData] = useState<Record<string, FinancialHealth>>({});
   const [internalTab, setInternalTab] = useState<"add" | "screener" | "news">("add");
+
+  // Inline qty editing state
+  const [editingQtyId, setEditingQtyId] = useState<string | null>(null);
+  const [qtyInput, setQtyInput] = useState("");
+  const qtyRef = useRef<HTMLInputElement>(null);
 
   const refreshMarketData = useCallback(async () => {
     const allTickers = [...new Set(holdings.map((h) => h.ticker))].sort();
@@ -128,6 +133,30 @@ export default function InventoryForm({
       onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete holding");
+    }
+  }
+
+
+  function startQtyEdit(h: StockHolding) {
+    setEditingQtyId(h.id);
+    setQtyInput(String(h.shares / 100));
+    setTimeout(() => qtyRef.current?.select(), 0);
+  }
+
+  async function endQtyEdit(h: StockHolding) {
+    setEditingQtyId(null);
+    const newLots = parseInt(qtyInput, 10);
+    if (isNaN(newLots) || newLots < 0 || newLots === h.shares / 100) return;
+    try {
+      await updateHolding(h.id, {
+        ticker: h.ticker,
+        shares: newLots * 100,
+        cost_basis: h.cost_basis,
+        current_price: h.current_price,
+      });
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update quantity");
     }
   }
 
@@ -449,7 +478,29 @@ export default function InventoryForm({
                         )}
                       </td>
                       <td className={`px-3 py-2.5 text-right tabular-nums text-[#c9d1d9] font-medium ${rowBorder}`}>
-                        {h.shares / 100}<span className="text-[8px] text-[#484f58] ml-0.5">×100</span>
+                        {editingQtyId === h.id ? (
+                          <input
+                            ref={qtyRef}
+                            type="number"
+                            min={0}
+                            value={qtyInput}
+                            onChange={(e) => setQtyInput(e.target.value)}
+                            onBlur={() => endQtyEdit(h)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") endQtyEdit(h);
+                              if (e.key === "Escape") setEditingQtyId(null);
+                            }}
+                            className="w-12 bg-[#161b22] border border-[#30363d] rounded px-1 py-0.5 text-right text-[#c9d1d9] text-xs focus:outline-none focus:border-[#58a6ff]"
+                          />
+                        ) : (
+                          <span
+                            className="cursor-pointer hover:text-[#58a6ff] transition-colors"
+                            onClick={() => startQtyEdit(h)}
+                            title="Click to edit quantity"
+                          >
+                            {h.shares / 100}<span className="text-[8px] text-[#484f58] ml-0.5">×100</span>
+                          </span>
+                        )}
                       </td>
                       <td className={`px-3 py-2.5 text-right tabular-nums text-[#8b949e] ${rowBorder}`}>
                         ${h.cost_basis.toFixed(2)}
