@@ -99,6 +99,7 @@ pub fn evaluate_wheel(
     max_dte: u32,
     earnings: &[EarningsCalendar],
     filters: &FilterParams,
+    portfolio_ctx: Option<&PortfolioContext>,
 ) -> Vec<WheelRecommendation> {
     let mut recommendations: Vec<WheelRecommendation> = Vec::new();
 
@@ -269,7 +270,10 @@ pub fn evaluate_wheel(
     if !all_csp.is_empty() {
         // ── Per-ticker quality scoring ────────────────────────────────────────
         let csp_quality = |c: &OptionsContract| -> f64 {
-            compute_quality_score(c, c.csp_return_on_capital())
+            match portfolio_ctx {
+                Some(ctx) => compute_csp_optimization_score(c, c.csp_return_on_capital(), ctx),
+                None => compute_quality_score(c, c.csp_return_on_capital()),
+            }
         };
 
         // Group candidates by ticker, sorted by quality descending.
@@ -777,4 +781,200 @@ fn format_cc_rationale(c: &OptionsContract, roc: f64, shares: u32, contracts: us
             "balancing premium income with upside participation"
         }
     )
+}
+
+// ── CSP Optimization Scoring ──────────────────────────────────────────────────
+
+/// Portfolio-level context used by the CSP optimization score.
+/// Provides concentration data so the scorer can penalise over-allocation.
+#[derive(Debug, Clone)]
+pub struct PortfolioContext {
+    /// Fraction of portfolio value already allocated to each ticker (0.0–1.0).
+    pub ticker_weights: HashMap<String, f64>,
+    /// Fraction of portfolio value already allocated to each sector (0.0–1.0).
+    pub sector_weights: HashMap<String, f64>,
+    /// Mapping of ticker → sector name.
+    pub ticker_sectors: HashMap<String, String>,
+    /// IV rank per ticker (0–100), approximated from the options chain.
+    pub iv_ranks: HashMap<String, f64>,
+}
+
+impl PortfolioContext {
+    /// Build portfolio context from inventory holdings and sector data.
+    pub fn from_holdings(
+        inventory: &[StockHolding],
+        ticker_sectors: &HashMap<String, String>,
+        chains: &[crate::models::OptionsChain],
+    ) -> Self {
+        let total_value: f64 = inventory.iter()
+            .map(|h| h.shares as f64 * h.current_price)
+            .sum();
+
+        let mut ticker_weights: HashMap<String, f64> = HashMap::new();
+        let mut sector_values: HashMap<String, f64> = HashMap::new();
+
+        for h in inventory {
+            let value = h.shares as f64 * h.current_price;
+            let weight = if total_value > 0.0 { value / total_value } else { 0.0 };
+            *ticker_weights.entry(h.ticker.to_uppercase()).or_default() += weight;
+
+            if let Some(sector) = ticker_sectors.get(&h.ticker.to_uppercase()) {
+                *sector_values.entry(sector.clone()).or_default() += value;
+            }
+        }
+
+        let sector_weights: HashMap<String, f64> = sector_values.into_iter()
+            .map(|(s, v)| (s, if total_value > 0.0 { v / total_value } else { 0.0 }))
+            .collect();
+
+        // Compute IV rank approximation per ticker from the options chain.
+        // IV rank = (current_ATM_IV - chain_min_IV) / (chain_max_IV - chain_min_IV) × 100
+        let mut iv_ranks: HashMap<String, f64> = HashMap::new();
+        for chain in chains {
+            let puts: Vec<&OptionsContract> = chain.contracts.iter()
+                .filter(|c| c.option_type == crate::models::OptionType::Put && c.implied_volatility > 0.0)
+                .collect();
+            if puts.is_empty() { continue; }
+
+            let min_iv = puts.iter().map(|c| c.implied_volatility).fold(f64::INFINITY, f64::min);
+            let max_iv = puts.iter().map(|c| c.implied_volatility).fold(f64::NEG_INFINITY, f64::max);
+
+            // ATM IV: put closest to underlying price
+            let atm_iv = puts.iter()
+                .min_by(|a, b| {
+                    let da = (a.strike - a.underlying_price).abs();
+                    let db = (b.strike - b.underlying_price).abs();
+                    da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .map(|c| c.implied_volatility)
+                .unwrap_or(0.0);
+
+            let rank = if (max_iv - min_iv).abs() > 1e-6 {
+                ((atm_iv - min_iv) / (max_iv - min_iv) * 100.0).clamp(0.0, 100.0)
+            } else {
+                50.0 // flat IV surface — neutral
+            };
+            iv_ranks.insert(chain.ticker.to_uppercase(), rank);
+        }
+
+        Self {
+            ticker_weights,
+            sector_weights,
+            ticker_sectors: ticker_sectors.clone(),
+            iv_ranks,
+        }
+    }
+}
+
+/// CSP Optimization Score (0–100).
+///
+/// Weighted formula:
+///   Score = Premium_score (25) + Delta_score (20) + DTE_score (15)
+///         + IV_rank_score (15) + Concentration_penalty (−25 max)
+///         + base (25 from Strike safety)
+///
+/// Components:
+/// - **Premium efficiency (25 pts)**: Annualised ROC relative to target range.
+/// - **Strike safety (25 pts)**: How far OTM the strike is (distance to underlying).
+/// - **Delta sweet spot (20 pts)**: Proximity to ideal delta (0.25 for CSPs).
+/// - **DTE efficiency (15 pts)**: Favours 30–50 DTE (theta decay sweet spot).
+/// - **IV rank bonus (15 pts)**: Higher IV rank = selling richer premium.
+/// - **Concentration penalty (−25 max)**: Penalises over-allocation to one ticker/sector.
+pub fn compute_csp_optimization_score(
+    contract: &OptionsContract,
+    annualised_roc: f64,
+    ctx: &PortfolioContext,
+) -> f64 {
+    let ticker = contract.ticker.to_uppercase();
+
+    // ── Premium efficiency (0–25 pts) ─────────────────────────────────────────
+    // Target: 20–40% annualised ROC is ideal; above 60% is risky, below 12% is weak.
+    let premium_score = if annualised_roc >= 20.0 && annualised_roc <= 40.0 {
+        25.0
+    } else if annualised_roc > 40.0 {
+        // Taper off — too high ROC often means excessive risk
+        (25.0 - (annualised_roc - 40.0) * 0.5).clamp(10.0, 25.0)
+    } else {
+        // Below 20%: scale linearly from 12% (0 pts) to 20% (25 pts)
+        ((annualised_roc - 12.0) / 8.0 * 25.0).clamp(0.0, 25.0)
+    };
+
+    // ── Strike safety / OTM distance (0–25 pts) ──────────────────────────────
+    // Deeper OTM = safer from assignment. Target: 5–15% OTM.
+    let otm_pct = if contract.underlying_price > 0.0 {
+        (contract.underlying_price - contract.strike) / contract.underlying_price * 100.0
+    } else {
+        0.0
+    };
+    let strike_score = if otm_pct >= 5.0 && otm_pct <= 15.0 {
+        25.0
+    } else if otm_pct > 15.0 {
+        // Very deep OTM — safe but low premium, partial credit
+        (25.0 - (otm_pct - 15.0) * 1.0).clamp(10.0, 25.0)
+    } else {
+        // Too close to ATM — higher assignment risk
+        (otm_pct / 5.0 * 25.0).clamp(0.0, 25.0)
+    };
+
+    // ── Delta sweet spot (0–20 pts) ───────────────────────────────────────────
+    // Ideal CSP delta: 0.20–0.30 (absolute), peak at 0.25.
+    let abs_delta = contract.delta.abs();
+    let target_delta = 0.25;
+    let delta_dev = (abs_delta - target_delta).abs();
+    let delta_score = if delta_dev <= 0.05 {
+        20.0
+    } else {
+        (20.0 - (delta_dev - 0.05) / 0.10 * 20.0).clamp(0.0, 20.0)
+    };
+
+    // ── DTE efficiency (0–15 pts) ─────────────────────────────────────────────
+    // Theta decay accelerates around 30–50 DTE — sweet spot for premium sellers.
+    let dte = contract.dte as f64;
+    let dte_score = if dte >= 30.0 && dte <= 50.0 {
+        15.0
+    } else if dte > 50.0 && dte <= 60.0 {
+        12.0
+    } else if dte >= 20.0 && dte < 30.0 {
+        12.0
+    } else if dte > 60.0 {
+        // Long-dated: capital tied up longer
+        (15.0 - (dte - 60.0) * 0.2).clamp(3.0, 10.0)
+    } else {
+        // Very short DTE (<20): gamma risk high
+        (dte / 20.0 * 10.0).clamp(0.0, 10.0)
+    };
+
+    // ── IV rank bonus (0–15 pts) ──────────────────────────────────────────────
+    // High IV rank means current IV is elevated vs history — great time to sell.
+    let iv_rank = ctx.iv_ranks.get(&ticker).copied().unwrap_or(50.0);
+    let iv_rank_score = (iv_rank / 100.0 * 15.0).clamp(0.0, 15.0);
+
+    // ── Concentration penalty (0 to −25 pts) ─────────────────────────────────
+    // Penalise adding to over-concentrated positions.
+    let ticker_weight = ctx.ticker_weights.get(&ticker).copied().unwrap_or(0.0);
+    let sector = ctx.ticker_sectors.get(&ticker);
+    let sector_weight = sector
+        .and_then(|s| ctx.sector_weights.get(s))
+        .copied()
+        .unwrap_or(0.0);
+
+    // Ticker concentration: penalty starts at 20% allocation, maxes at 50%.
+    let ticker_penalty = if ticker_weight > 0.20 {
+        ((ticker_weight - 0.20) / 0.30 * 15.0).min(15.0)
+    } else {
+        0.0
+    };
+
+    // Sector concentration: penalty starts at 40% allocation, maxes at 70%.
+    let sector_penalty = if sector_weight > 0.40 {
+        ((sector_weight - 0.40) / 0.30 * 10.0).min(10.0)
+    } else {
+        0.0
+    };
+
+    let concentration_penalty = ticker_penalty + sector_penalty;
+
+    // ── Final score ───────────────────────────────────────────────────────────
+    let raw = premium_score + strike_score + delta_score + dte_score + iv_rank_score - concentration_penalty;
+    raw.clamp(0.0, 100.0)
 }

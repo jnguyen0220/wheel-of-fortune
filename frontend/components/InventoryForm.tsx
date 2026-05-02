@@ -327,7 +327,7 @@ export default function InventoryForm({
             <button
               type="submit"
               disabled={saving}
-              className="shrink-0 btn-primary px-4 py-2 flex items-center gap-1.5"
+              className="shrink-0 btn-primary px-4 py-2 border border-transparent leading-4 flex items-center gap-1.5"
             >
               {saving ? (
                 <>

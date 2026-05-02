@@ -800,6 +800,13 @@ struct QuoteSummaryResult {
     financial_data: Option<YahooFinancialData>,
     default_key_statistics: Option<YahooKeyStatistics>,
     quote_type: Option<YahooQuoteType>,
+    asset_profile: Option<YahooAssetProfile>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct YahooAssetProfile {
+    sector: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1061,7 +1068,7 @@ pub async fn fetch_financial_health(
     ticker: &str,
 ) -> Result<crate::models::FinancialHealth> {
     let url = format!(
-        "https://query1.finance.yahoo.com/v10/finance/quoteSummary/{ticker}?modules=financialData,defaultKeyStatistics,quoteType&crumb={crumb}",
+        "https://query1.finance.yahoo.com/v10/finance/quoteSummary/{ticker}?modules=financialData,defaultKeyStatistics,quoteType,assetProfile&crumb={crumb}",
         ticker = ticker.to_uppercase(),
     );
 
@@ -1094,10 +1101,12 @@ pub async fn fetch_financial_health(
     let fd = result.financial_data;
     let ks = result.default_key_statistics;
     let qt = result.quote_type;
+    let ap = result.asset_profile;
 
     let mut health = crate::models::FinancialHealth {
         ticker: ticker.to_uppercase(),
         name: qt.and_then(|q| q.long_name.or(q.short_name)),
+        sector: ap.and_then(|a| a.sector),
         revenue: fd.as_ref().and_then(|f| f.total_revenue.as_ref()).and_then(|v| v.raw),
         revenue_growth: fd.as_ref().and_then(|f| f.revenue_growth.as_ref()).and_then(|v| v.raw),
         net_income: fd.as_ref().and_then(|f| f.net_income_to_common.as_ref()).and_then(|v| v.raw),

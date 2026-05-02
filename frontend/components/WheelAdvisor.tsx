@@ -1,11 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type {
   AnalystTrend,
   EarningsCalendar,
   EarningsResult,
-  LlmPrompt,
   OptionsChain,
   StockHolding,
   WheelRecommendation,
@@ -16,31 +15,13 @@ import {
   getRecommendations,
 } from "@/lib/api";
 import InventoryForm from "./InventoryForm";
-import LlmAnalysis from "./LlmAnalysis";
+import Recommendations from "./Recommendations";
 import OptionsTab from "./OptionsTab";
 import { HealthPopupProvider } from "./HealthPopupContext";
 import type { StrategyFilters } from "./OptionsTab";
-import { DEFAULT_FILTERS } from "./OptionsTab";
 
 export default function WheelAdvisor() {
   const [holdings, setHoldings] = useState<StockHolding[]>([]);
-  const [availableCash, setAvailableCash] = useState<number>(0);
-  const [cashInput, setCashInput] = useState<string>("");
-  const [cashEditing, setCashEditing] = useState(false);
-  const cashRef = useRef<HTMLInputElement>(null);
-
-  const formatLive = (v: string) => {
-    const digits = v.replace(/\D/g, "");
-    if (!digits) return "";
-    return parseInt(digits, 10).toLocaleString();
-  };
-
-  const handleCashChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const raw = e.target.value.replace(/\D/g, "");
-    setCashInput(raw);
-    setAvailableCash(raw ? parseInt(raw, 10) : 0);
-  };
-  const [llmPrompt, setLlmPrompt] = useState<LlmPrompt | null>(null);
   const [recommendations, setRecommendations] = useState<WheelRecommendation[]>([]);
   const [earningsCalendar, setEarningsCalendar] = useState<Record<string, EarningsCalendar[]>>({});
   const [earningsHistory, setEarningsHistory] = useState<Record<string, EarningsResult[]>>({});
@@ -51,26 +32,10 @@ export default function WheelAdvisor() {
   const [optionsChains, setOptionsChains] = useState<OptionsChain[]>([]);
   const [optionsLoaded, setOptionsLoaded] = useState(false);
   const [optionsLoading, setOptionsLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<"inventory" | "options" | "ai">(
+  const [activeTab, setActiveTab] = useState<"inventory" | "options">(
     "inventory",
   );
-
-  // Strategy filters (editable in Options tab)
-  const [filters, setFilters] = useState<StrategyFilters>(DEFAULT_FILTERS);
-
-  // Ollama model list — fetched once, passed to LlmAnalysis
-  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
-  const [ollamaModelsLoading, setOllamaModelsLoading] = useState(true);
-
-  useEffect(() => {
-    fetch("/api/ollama-models")
-      .then((r) => r.json())
-      .then((data: { models: string[] }) => {
-        setOllamaModels(data.models ?? []);
-      })
-      .catch(() => setOllamaModels([]))
-      .finally(() => setOllamaModelsLoading(false));
-  }, []);
+  const [optionsSubTab, setOptionsSubTab] = useState<"chains" | "recommendations">("chains");
 
   const refreshInventory = useCallback(async () => {
     try {
@@ -110,7 +75,7 @@ export default function WheelAdvisor() {
     }
   }
 
-  async function runRecommendations() {
+  async function runRecommendations(availableCash: number, filters: StrategyFilters) {
     const tickers = [...new Set(holdings.map((h) => h.ticker))].sort();
     if (tickers.length === 0) {
       setError("Add tickers first.");
@@ -126,7 +91,7 @@ export default function WheelAdvisor() {
         chains: optionsChains.length > 0 ? optionsChains : undefined,
         dte_min: filters.dte_min,
         dte_max: filters.dte_max,
-        // Flatten earnings calendar and analyst trends for LLM context
+        // Flatten earnings calendar and analyst trends
         earnings_calendar: Object.values(earningsCalendar).flat().length > 0
           ? Object.values(earningsCalendar).flat()
           : undefined,
@@ -142,10 +107,10 @@ export default function WheelAdvisor() {
         min_annualised_roc: filters.min_annualised_roc,
         max_annualised_roc: filters.max_annualised_roc,
       });
-      setLlmPrompt(result.llm_prompt);
       setRecommendations(result.recommendations ?? []);
       setTickersWithoutOptions(result.tickers_without_options ?? []);
-      setActiveTab("ai");
+      setActiveTab("options");
+      setOptionsSubTab("recommendations");
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to fetch recommendations",
@@ -159,7 +124,7 @@ export default function WheelAdvisor() {
     <HealthPopupProvider>
     <div className="min-h-screen bg-[#0d1117]">
       {/* Header */}
-      <header className="bg-[#161b22] border-b border-[#30363d] sticky top-0 z-20">
+      <header className="bg-[#161b22] border-b border-[#30363d] sticky top-0 z-20 shadow-sm shadow-black/20">
         <div className="max-w-7xl mx-auto px-6 py-3 flex items-center gap-3">
           <div className="w-7 h-7 bg-[#3fb950] rounded flex items-center justify-center">
             <svg className="w-4 h-4 text-[#0d1117]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -180,14 +145,13 @@ export default function WheelAdvisor() {
             {(
               [
                 { key: "inventory", label: "Portfolio" },
-                { key: "options", label: "Options" },
-                { key: "ai", label: "Trade Desk" },
+                { key: "options", label: "Trade Desk" },
               ] as const
             ).map(({ key, label }) => (
               <button
                 key={key}
                 onClick={() => setActiveTab(key)}
-                disabled={(key === "options" && !optionsLoaded) || (key === "ai" && !llmPrompt)}
+                disabled={key === "options" && !optionsLoaded}
                 className={`tab-btn ${
                   activeTab === key
                     ? "bg-[#30363d] text-[#c9d1d9]"
@@ -218,26 +182,59 @@ export default function WheelAdvisor() {
           </div>
 
           <div className={activeTab === "options" ? "" : "hidden"}>
-            <OptionsTab
-              chains={optionsChains}
-              onRecommendations={runRecommendations}
-              recommendationsLoading={loading}
-              cashInput={cashInput}
-              cashEditing={cashEditing}
-              onCashEditStart={() => { setCashEditing(true); setTimeout(() => cashRef.current?.select(), 0); }}
-              onCashEditEnd={() => setCashEditing(false)}
-              onCashChange={handleCashChange}
-              formatCash={formatLive}
-              cashRef={cashRef}
-              earningsCalendar={earningsCalendar}
-              filters={filters}
-              onFiltersChange={setFilters}
-              hasShares={holdings.reduce((sum, h) => sum + h.shares, 0) > 0}
-            />
-          </div>
+            {/* Sub-tab navigation */}
+            <div className="flex items-center gap-3 mb-4">
+              <div className="tab-group">
+                {([
+                  { key: "chains" as const, label: "Option Chains" },
+                  { key: "recommendations" as const, label: "Recommendations" },
+                ]).map(({ key, label }) => (
+                  <button
+                    key={key}
+                    onClick={() => setOptionsSubTab(key)}
+                    className={`tab-btn ${
+                      optionsSubTab === key
+                        ? "bg-[#30363d] text-[#c9d1d9]"
+                        : "text-[#8b949e] hover:text-[#c9d1d9]"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {optionsSubTab === "recommendations" && tickersWithoutOptions.length > 0 && (
+                <div className="ml-auto flex items-center gap-1.5 text-[#d29922] text-[10px] font-medium">
+                  <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                  </svg>
+                  <span>No options chain:</span>
+                  <span className="flex flex-wrap gap-1">
+                    {tickersWithoutOptions.map((t) => (
+                      <span key={t} className="bg-[#d2992215] border border-[#d2992240] px-1.5 py-0.5 rounded font-bold">{t}</span>
+                    ))}
+                  </span>
+                </div>
+              )}
+            </div>
 
-          <div className={activeTab === "ai" ? "" : "hidden"}>
-            {llmPrompt && <LlmAnalysis prompt={llmPrompt} recommendations={recommendations} ollamaModels={ollamaModels} ollamaModelsLoading={ollamaModelsLoading} earningsCalendar={earningsCalendar} earningsHistory={earningsHistory} analystTrends={analystTrends} tickersWithoutOptions={tickersWithoutOptions} filters={filters} />}
+            {/* Sub-tab content */}
+            <div className={optionsSubTab === "chains" ? "" : "hidden"}>
+              <OptionsTab
+                chains={optionsChains}
+                earningsCalendar={earningsCalendar}
+              />
+            </div>
+            <div className={optionsSubTab === "recommendations" ? "" : "hidden"}>
+              <Recommendations
+                recommendations={recommendations}
+                earningsCalendar={earningsCalendar}
+                earningsHistory={earningsHistory}
+                analystTrends={analystTrends}
+                onRecommendations={runRecommendations}
+                recommendationsLoading={loading}
+                hasShares={holdings.reduce((sum, h) => sum + h.shares, 0) > 0}
+              />
+            </div>
           </div>
         </div>
       </div>

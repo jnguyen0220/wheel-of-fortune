@@ -7,6 +7,9 @@ pub struct FinancialHealth {
     pub ticker: String,
     /// Full company name (e.g. "Apple Inc.").
     pub name: Option<String>,
+    /// Sector classification (e.g. "Technology", "Healthcare").
+    #[serde(default)]
+    pub sector: Option<String>,
 
     // ── Profitability ─────────────────────────────────────────────────────────
     /// Trailing-twelve-month revenue (USD).

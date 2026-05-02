@@ -12,7 +12,7 @@ use tracing::error;
 
 use crate::llm::prompt::build_ranking_prompt;
 use crate::models::{AnalystTrend, EarningsCalendar, Inventory, OptionsChain, StockMarketData};
-use crate::strategy::wheel::{evaluate_wheel, WheelRecommendation};
+use crate::strategy::wheel::{evaluate_wheel, PortfolioContext, WheelRecommendation};
 use crate::AppState;
 
 pub fn router(state: Arc<AppState>) -> Router {
@@ -219,6 +219,21 @@ async fn get_recommendations(
         max_annualised_roc: req.max_annualised_roc,
     };
 
+    // Build portfolio context for CSP optimization scoring.
+    // Sector data comes from the financial health cache if available.
+    let ticker_sectors: HashMap<String, String> = {
+        let cache = state.financials_cache.read().await;
+        cache.entries()
+            .into_iter()
+            .filter_map(|(t, h)| h.sector.map(|s| (t, s)))
+            .collect()
+    };
+    let portfolio_ctx = PortfolioContext::from_holdings(
+        &inventory.holdings,
+        &ticker_sectors,
+        &chains,
+    );
+
     // Run the wheel strategy engine to get pre-computed, validated trades.
     let recommendations = evaluate_wheel(
         &inventory.holdings,
@@ -228,6 +243,7 @@ async fn get_recommendations(
         max_dte,
         &earnings,
         &filter_params,
+        Some(&portfolio_ctx),
     );
 
     // Build an LLM prompt that asks the model to rank these pre-computed trades.

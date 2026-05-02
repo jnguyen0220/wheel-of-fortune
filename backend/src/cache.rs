@@ -77,4 +77,14 @@ impl<V: Clone> TtlCache<V> {
             },
         );
     }
+
+    /// Return all non-expired entries as (key, value) pairs.
+    pub fn entries(&self) -> Vec<(String, V)> {
+        let now = Instant::now();
+        self.entries
+            .iter()
+            .filter(|(_, e)| now.duration_since(e.inserted_at) <= self.ttl)
+            .map(|(k, e)| (k.clone(), e.data.clone()))
+            .collect()
+    }
 }

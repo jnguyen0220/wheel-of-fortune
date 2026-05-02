@@ -71,23 +71,10 @@ export interface WheelRecommendation {
   earnings_warning?: boolean;
 }
 
-export interface ChatMessage {
-  role: "system" | "user" | "assistant";
-  content: string;
-}
-
-export interface LlmPrompt {
-  messages: ChatMessage[];
-  temperature: number;
-  max_tokens: number;
-}
-
 export interface RecommendationResponse {
   market_data: Record<string, StockMarketData>;
   /** Pre-computed trade candidates from the wheel strategy engine. */
   recommendations: WheelRecommendation[];
-  /** LLM prompt that asks the model to rank the pre-computed trades. */
-  llm_prompt: LlmPrompt;
   /** Tickers that were requested but had no options chain data. */
   tickers_without_options: string[];
 }

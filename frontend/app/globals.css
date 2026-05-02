@@ -163,7 +163,7 @@ input:-webkit-autofill:active {
   @apply flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all;
 }
 .ticker-tab-active {
-  @apply flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all bg-[#30363d] text-[#58a6ff] ring-1 ring-[#484f58];
+  @apply flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all bg-[#30363d] text-[#c9d1d9] ring-1 ring-[#484f58];
 }
 .ticker-tab-inactive {
   @apply flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all bg-[#21262d] text-[#8b949e] hover:text-[#c9d1d9] hover:bg-[#30363d] border border-[#30363d];
