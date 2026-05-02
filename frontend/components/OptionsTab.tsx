@@ -10,10 +10,8 @@ export interface StrategyFilters {
   dte_min: number;
   dte_max: number;
   min_open_interest: number;
-  cc_delta_min: number;
-  cc_delta_max: number;
-  csp_delta_min: number;
-  csp_delta_max: number;
+  cc_max_assignment_pct: number;
+  csp_max_assignment_pct: number;
   min_annualised_roc: number;
   max_annualised_roc: number;
 }
@@ -22,10 +20,8 @@ export const DEFAULT_FILTERS: StrategyFilters = {
   dte_min: 14,
   dte_max: 45,
   min_open_interest: 100,
-  cc_delta_min: 20,
-  cc_delta_max: 35,
-  csp_delta_min: 20,
-  csp_delta_max: 35,
+  cc_max_assignment_pct: 30,
+  csp_max_assignment_pct: 30,
   min_annualised_roc: 12,
   max_annualised_roc: 120,
 };

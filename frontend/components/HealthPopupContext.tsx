@@ -311,7 +311,11 @@ function EmptyState({ children }: { children: React.ReactNode }) {
   );
 }
 
+type FinancialSubTab = "income" | "margins" | "balance" | "returns" | "valuation";
+
 function FinancialsTab({ health }: { health?: FinancialHealth }) {
+  const [subTab, setSubTab] = useState<FinancialSubTab>("income");
+
   if (!health) return <EmptyState>No financial data available.</EmptyState>;
   const fmtPct = (v: number) => `${(v * 100).toFixed(1)}%`;
   const fmtM = (v: number) => {
@@ -322,39 +326,72 @@ function FinancialsTab({ health }: { health?: FinancialHealth }) {
     return `$${v.toLocaleString()}`;
   };
   const fmtR = (v: number) => `${v.toFixed(2)}`;
+
+  const subTabs: { key: FinancialSubTab; label: string }[] = [
+    { key: "income", label: "Income" },
+    { key: "margins", label: "Margins" },
+    { key: "balance", label: "Balance Sheet" },
+    { key: "returns", label: "Returns" },
+    { key: "valuation", label: "Valuation" },
+  ];
+
   return (
-    <div className="grid grid-cols-2 gap-3">
-      <SectionCard title="Income">
-        <MetricRow label="Revenue" value={health.revenue} fmt={fmtM} />
-        <MetricRow label="Revenue Growth" value={health.revenue_growth} fmt={fmtPct} />
-        <MetricRow label="Net Income" value={health.net_income} fmt={fmtM} />
-        <MetricRow label="EPS" value={health.earnings_per_share} fmt={fmtR} />
-      </SectionCard>
-      <SectionCard title="Margins">
-        <MetricRow label="Profit Margin" value={health.profit_margin} fmt={fmtPct} />
-        <MetricRow label="Operating Margin" value={health.operating_margin} fmt={fmtPct} />
-      </SectionCard>
-      <SectionCard title="Balance Sheet">
-        <MetricRow label="Total Cash" value={health.total_cash} fmt={fmtM} />
-        <MetricRow label="Total Debt" value={health.total_debt} fmt={fmtM} />
-        <MetricRow label="Debt/Equity" value={health.debt_to_equity} fmt={fmtR} />
-        <MetricRow label="Current Ratio" value={health.current_ratio} fmt={fmtR} />
-      </SectionCard>
-      <SectionCard title="Returns & Cash Flow">
-        <MetricRow label="ROE" value={health.return_on_equity} fmt={fmtPct} />
-        <MetricRow label="ROA" value={health.return_on_assets} fmt={fmtPct} />
-        <MetricRow label="Free Cash Flow" value={health.free_cash_flow} fmt={fmtM} />
-        <MetricRow label="Op. Cash Flow" value={health.operating_cash_flow} fmt={fmtM} />
-      </SectionCard>
-      <div className="col-span-2">
-        <SectionCard title="Valuation">
-          <div className="grid grid-cols-2 gap-x-6">
+    <div className="space-y-4">
+      <div className="flex gap-1 bg-[#161b22] border border-[#21262d] rounded-lg p-1">
+        {subTabs.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setSubTab(tab.key)}
+            className={`flex-1 px-2 py-1.5 text-[10px] font-medium rounded transition-all whitespace-nowrap ${
+              subTab === tab.key
+                ? "bg-[#30363d] text-[#f0f6fc] shadow-sm"
+                : "text-[#8b949e] hover:text-[#c9d1d9]"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-4">
+        {subTab === "income" && (
+          <>
+            <MetricRow label="Revenue" value={health.revenue} fmt={fmtM} />
+            <MetricRow label="Revenue Growth" value={health.revenue_growth} fmt={fmtPct} />
+            <MetricRow label="Net Income" value={health.net_income} fmt={fmtM} />
+            <MetricRow label="EPS" value={health.earnings_per_share} fmt={fmtR} />
+          </>
+        )}
+        {subTab === "margins" && (
+          <>
+            <MetricRow label="Profit Margin" value={health.profit_margin} fmt={fmtPct} />
+            <MetricRow label="Operating Margin" value={health.operating_margin} fmt={fmtPct} />
+          </>
+        )}
+        {subTab === "balance" && (
+          <>
+            <MetricRow label="Total Cash" value={health.total_cash} fmt={fmtM} />
+            <MetricRow label="Total Debt" value={health.total_debt} fmt={fmtM} />
+            <MetricRow label="Debt/Equity" value={health.debt_to_equity} fmt={fmtR} />
+            <MetricRow label="Current Ratio" value={health.current_ratio} fmt={fmtR} />
+          </>
+        )}
+        {subTab === "returns" && (
+          <>
+            <MetricRow label="ROE" value={health.return_on_equity} fmt={fmtPct} />
+            <MetricRow label="ROA" value={health.return_on_assets} fmt={fmtPct} />
+            <MetricRow label="Free Cash Flow" value={health.free_cash_flow} fmt={fmtM} />
+            <MetricRow label="Op. Cash Flow" value={health.operating_cash_flow} fmt={fmtM} />
+          </>
+        )}
+        {subTab === "valuation" && (
+          <>
             <MetricRow label="Trailing P/E" value={health.trailing_pe} fmt={fmtR} />
             <MetricRow label="Forward P/E" value={health.forward_pe} fmt={fmtR} />
             <MetricRow label="Price/Book" value={health.price_to_book} fmt={fmtR} />
             <MetricRow label="PEG Ratio" value={health.peg_ratio} fmt={fmtR} />
-          </div>
-        </SectionCard>
+          </>
+        )}
       </div>
     </div>
   );
@@ -573,8 +610,8 @@ function NewsTab({ news }: { news?: NewsItem[] }) {
     return <EmptyState>No recent news available.</EmptyState>;
   }
   return (
-    <div className="space-y-2">
-      {news.slice(0, 8).map((item, i) => {
+    <div className="divide-y divide-[#21262d] bg-[#161b22] border border-[#21262d] rounded-lg">
+      {news.slice(0, 10).map((item, i) => {
         const date = new Date(item.published_at * 1000);
         const ago = formatTimeAgo(date);
         return (
@@ -583,14 +620,10 @@ function NewsTab({ news }: { news?: NewsItem[] }) {
             href={item.link}
             target="_blank"
             rel="noopener noreferrer"
-            className="group block bg-[#161b22] border border-[#21262d] rounded-lg p-3.5 hover:border-[#30363d] hover:bg-[#1c2128] transition-all"
+            className="group flex items-center justify-between gap-3 px-3 py-2 hover:bg-[#1c2128] transition-colors first:rounded-t-lg last:rounded-b-lg"
           >
-            <div className="text-[11px] text-[#c9d1d9] leading-relaxed line-clamp-2 group-hover:text-[#f0f6fc] transition-colors">{item.title}</div>
-            <div className="flex items-center gap-2 mt-2">
-              <span className="text-[10px] font-medium text-[#8b949e]">{item.publisher}</span>
-              <span className="w-1 h-1 rounded-full bg-[#30363d]" />
-              <span className="text-[10px] text-[#484f58]">{ago}</span>
-            </div>
+            <span className="text-[11px] text-[#c9d1d9] leading-snug line-clamp-1 group-hover:text-[#f0f6fc] transition-colors flex-1">{item.title}</span>
+            <span className="text-[10px] text-[#484f58] whitespace-nowrap shrink-0">{item.publisher} · {ago}</span>
           </a>
         );
       })}

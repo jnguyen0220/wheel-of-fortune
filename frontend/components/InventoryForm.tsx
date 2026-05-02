@@ -54,6 +54,11 @@ export default function InventoryForm({
   const [qtyInput, setQtyInput] = useState("");
   const qtyRef = useRef<HTMLInputElement>(null);
 
+  // Inline avg cost editing state
+  const [editingCostId, setEditingCostId] = useState<string | null>(null);
+  const [costInput, setCostInput] = useState("");
+  const costRef = useRef<HTMLInputElement>(null);
+
   const refreshMarketData = useCallback(async () => {
     const allTickers = [...new Set(holdings.map((h) => h.ticker))].sort();
     if (allTickers.length === 0) return;
@@ -160,6 +165,29 @@ export default function InventoryForm({
     }
   }
 
+  function startCostEdit(h: StockHolding) {
+    setEditingCostId(h.id);
+    setCostInput(String(h.cost_basis));
+    setTimeout(() => costRef.current?.select(), 0);
+  }
+
+  async function endCostEdit(h: StockHolding) {
+    setEditingCostId(null);
+    const newCost = parseFloat(costInput);
+    if (isNaN(newCost) || newCost < 0 || newCost === h.cost_basis) return;
+    try {
+      await updateHolding(h.id, {
+        ticker: h.ticker,
+        shares: h.shares,
+        cost_basis: newCost,
+        current_price: h.current_price,
+      });
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update avg cost");
+    }
+  }
+
   function handleDownloadTemplate() {
     const csv = "Ticker,Shares,Avg Cost\nAAPL,100,150.00\n";
     const blob = new Blob([csv], { type: "text/csv" });
@@ -239,7 +267,7 @@ export default function InventoryForm({
             type="button"
             onClick={onGenerate}
             disabled={generating || holdings.length === 0}
-            className="toolbar-btn disabled:opacity-40 disabled:cursor-not-allowed"
+            className={`${holdings.length > 0 ? "toolbar-btn-secondary" : "toolbar-btn"} disabled:opacity-40 disabled:cursor-not-allowed`}
           >
             {generating ? (
               <>
@@ -503,7 +531,30 @@ export default function InventoryForm({
                         )}
                       </td>
                       <td className={`px-3 py-2.5 text-right tabular-nums text-[#8b949e] ${rowBorder}`}>
-                        ${h.cost_basis.toFixed(2)}
+                        {editingCostId === h.id ? (
+                          <input
+                            ref={costRef}
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            value={costInput}
+                            onChange={(e) => setCostInput(e.target.value)}
+                            onBlur={() => endCostEdit(h)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") endCostEdit(h);
+                              if (e.key === "Escape") setEditingCostId(null);
+                            }}
+                            className="w-16 bg-[#161b22] border border-[#30363d] rounded px-1 py-0.5 text-right text-[#c9d1d9] text-xs focus:outline-none focus:border-[#58a6ff]"
+                          />
+                        ) : (
+                          <span
+                            className="cursor-pointer hover:text-[#58a6ff] transition-colors"
+                            onClick={() => startCostEdit(h)}
+                            title="Click to edit avg cost"
+                          >
+                            ${h.cost_basis.toFixed(2)}
+                          </span>
+                        )}
                       </td>
                       <td className={`px-3 py-2.5 text-right ${rowBorder}`}>
                         {md ? (

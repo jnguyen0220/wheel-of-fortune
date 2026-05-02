@@ -100,10 +100,8 @@ export default function WheelAdvisor() {
           : undefined,
         // Strategy filters
         min_open_interest: filters.min_open_interest,
-        cc_delta_min: filters.cc_delta_min / 100,
-        cc_delta_max: filters.cc_delta_max / 100,
-        csp_delta_min: filters.csp_delta_min / 100,
-        csp_delta_max: filters.csp_delta_max / 100,
+        cc_max_assignment_pct: filters.cc_max_assignment_pct / 100,
+        csp_max_assignment_pct: filters.csp_max_assignment_pct / 100,
         min_annualised_roc: filters.min_annualised_roc,
         max_annualised_roc: filters.max_annualised_roc,
       });

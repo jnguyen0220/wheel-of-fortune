@@ -26,13 +26,10 @@ const EARNINGS_WARNING_DAYS: i64 = 14;
 /// Minimum annualised return on capital to surface a recommendation.
 const DEFAULT_MIN_ANNUALISED_ROC: f64 = 12.0; // percent
 
-/// Target delta range for CSPs (absolute value).
-const DEFAULT_CSP_DELTA_MIN: f64 = 0.20;
-const DEFAULT_CSP_DELTA_MAX: f64 = 0.35;
-
-/// Target delta range for CCs (absolute value).
-const DEFAULT_CC_DELTA_MIN: f64 = 0.20;
-const DEFAULT_CC_DELTA_MAX: f64 = 0.35;
+/// Default max assignment probability (delta) for CCs.
+const DEFAULT_CC_MAX_ASSIGNMENT: f64 = 0.30;
+/// Default max assignment probability (delta) for CSPs.
+const DEFAULT_CSP_MAX_ASSIGNMENT: f64 = 0.30;
 
 /// Minimum open interest to ensure liquidity.
 const DEFAULT_MIN_OPEN_INTEREST: u64 = 100;
@@ -41,10 +38,8 @@ const DEFAULT_MIN_OPEN_INTEREST: u64 = 100;
 #[derive(Debug, Clone, Default)]
 pub struct FilterParams {
     pub min_open_interest: Option<u64>,
-    pub cc_delta_min: Option<f64>,
-    pub cc_delta_max: Option<f64>,
-    pub csp_delta_min: Option<f64>,
-    pub csp_delta_max: Option<f64>,
+    pub cc_max_assignment_pct: Option<f64>,
+    pub csp_max_assignment_pct: Option<f64>,
     pub min_annualised_roc: Option<f64>,
     pub max_annualised_roc: Option<f64>,
 }
@@ -105,10 +100,13 @@ pub fn evaluate_wheel(
 
     // Resolve filter values (use caller overrides or defaults).
     let min_oi = filters.min_open_interest.unwrap_or(DEFAULT_MIN_OPEN_INTEREST);
-    let cc_delta_min = filters.cc_delta_min.unwrap_or(DEFAULT_CC_DELTA_MIN);
-    let cc_delta_max = filters.cc_delta_max.unwrap_or(DEFAULT_CC_DELTA_MAX);
-    let csp_delta_min = filters.csp_delta_min.unwrap_or(DEFAULT_CSP_DELTA_MIN);
-    let csp_delta_max = filters.csp_delta_max.unwrap_or(DEFAULT_CSP_DELTA_MAX);
+    let cc_target_delta = filters.cc_max_assignment_pct.unwrap_or(DEFAULT_CC_MAX_ASSIGNMENT);
+    let csp_target_delta = filters.csp_max_assignment_pct.unwrap_or(DEFAULT_CSP_MAX_ASSIGNMENT);
+    // Use target ± 10pp band so changing the value shifts which contracts appear.
+    let cc_delta_min = (cc_target_delta - 0.10).max(0.0);
+    let cc_delta_max = cc_target_delta;
+    let csp_delta_min = (csp_target_delta - 0.10).max(0.0);
+    let csp_delta_max = csp_target_delta;
     let min_roc = filters.min_annualised_roc.unwrap_or(DEFAULT_MIN_ANNUALISED_ROC);
     let max_roc = filters.max_annualised_roc.unwrap_or(120.0);
     let earnings_warn_days = EARNINGS_WARNING_DAYS;

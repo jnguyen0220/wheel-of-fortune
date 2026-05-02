@@ -483,50 +483,28 @@ export default function Recommendations({ recommendations, earningsCalendar = {}
             <span className="w-px h-5 bg-[#21262d] mx-0.5" />
 
             <div className="flex items-center gap-1 bg-[#161b22] border border-[#30363d] rounded px-2.5 py-1.5">
-              <span className="text-[10px] text-[#d29922] font-medium">CC Δ</span>
+              <span className="text-[10px] text-[#d29922] font-medium">CC %</span>
               <input
                 type="number"
-                min={0}
+                min={1}
                 max={100}
                 step={1}
-                value={filters.cc_delta_min ?? DEFAULT_FILTERS.cc_delta_min}
-                onChange={(e) => setFilters({ ...filters, cc_delta_min: parseFloat(e.target.value) || 0 })}
+                value={filters.cc_max_assignment_pct ?? DEFAULT_FILTERS.cc_max_assignment_pct}
+                onChange={(e) => setFilters({ ...filters, cc_max_assignment_pct: parseFloat(e.target.value) || 0 })}
                 className="w-10 bg-transparent text-xs tabular-nums text-[#c9d1d9] text-center focus:outline-none focus:ring-0 border-b border-[#30363d] focus:border-[#58a6ff]"
               />
-              <span className="text-[10px] text-[#484f58]">–</span>
-              <input
-                type="number"
-                min={0}
-                max={100}
-                step={1}
-                value={filters.cc_delta_max ?? DEFAULT_FILTERS.cc_delta_max}
-                onChange={(e) => setFilters({ ...filters, cc_delta_max: parseFloat(e.target.value) || 0 })}
-                className="w-10 bg-transparent text-xs tabular-nums text-[#c9d1d9] text-center focus:outline-none focus:ring-0 border-b border-[#30363d] focus:border-[#58a6ff]"
-              />
-              <span className="text-[10px] text-[#484f58]">%</span>
             </div>
             <div className="flex items-center gap-1 bg-[#161b22] border border-[#30363d] rounded px-2.5 py-1.5">
-              <span className="text-[10px] text-[#58a6ff] font-medium">CSP Δ</span>
+              <span className="text-[10px] text-[#58a6ff] font-medium">CSP %</span>
               <input
                 type="number"
-                min={0}
+                min={1}
                 max={100}
                 step={1}
-                value={filters.csp_delta_min ?? DEFAULT_FILTERS.csp_delta_min}
-                onChange={(e) => setFilters({ ...filters, csp_delta_min: parseFloat(e.target.value) || 0 })}
+                value={filters.csp_max_assignment_pct ?? DEFAULT_FILTERS.csp_max_assignment_pct}
+                onChange={(e) => setFilters({ ...filters, csp_max_assignment_pct: parseFloat(e.target.value) || 0 })}
                 className="w-10 bg-transparent text-xs tabular-nums text-[#c9d1d9] text-center focus:outline-none focus:ring-0 border-b border-[#30363d] focus:border-[#58a6ff]"
               />
-              <span className="text-[10px] text-[#484f58]">–</span>
-              <input
-                type="number"
-                min={0}
-                max={100}
-                step={1}
-                value={filters.csp_delta_max ?? DEFAULT_FILTERS.csp_delta_max}
-                onChange={(e) => setFilters({ ...filters, csp_delta_max: parseFloat(e.target.value) || 0 })}
-                className="w-10 bg-transparent text-xs tabular-nums text-[#c9d1d9] text-center focus:outline-none focus:ring-0 border-b border-[#30363d] focus:border-[#58a6ff]"
-              />
-              <span className="text-[10px] text-[#484f58]">%</span>
             </div>
             <button
               type="button"

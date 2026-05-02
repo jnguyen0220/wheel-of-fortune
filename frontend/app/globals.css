@@ -154,6 +154,18 @@ input:-webkit-autofill:active {
 .toolbar-btn {
   @apply flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 transition text-[#c9d1d9] hover:text-white hover:bg-[#30363d];
 }
+.toolbar-btn-primary {
+  @apply flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 transition text-white bg-[#238636] hover:bg-[#2ea043] shadow-sm;
+}
+.toolbar-btn-secondary {
+  @apply flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 transition;
+  color: #58a6ff;
+  background-color: rgba(56, 139, 253, 0.1);
+}
+.toolbar-btn-secondary:hover {
+  background-color: rgba(56, 139, 253, 0.2);
+  color: #79c0ff;
+}
 .toolbar-divider {
   @apply w-px h-5 bg-[#30363d];
 }

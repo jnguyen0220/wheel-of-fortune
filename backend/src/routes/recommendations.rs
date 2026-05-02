@@ -45,12 +45,10 @@ pub struct RecommendationRequest {
     pub analyst_trends: Option<Vec<AnalystTrend>>,
     /// Minimum open interest threshold.
     pub min_open_interest: Option<u64>,
-    /// CC delta range.
-    pub cc_delta_min: Option<f64>,
-    pub cc_delta_max: Option<f64>,
-    /// CSP delta range.
-    pub csp_delta_min: Option<f64>,
-    pub csp_delta_max: Option<f64>,
+    /// Max assignment probability (delta) for covered calls.
+    pub cc_max_assignment_pct: Option<f64>,
+    /// Max assignment probability (delta) for cash-secured puts.
+    pub csp_max_assignment_pct: Option<f64>,
     /// Minimum annualised ROC (percent).
     pub min_annualised_roc: Option<f64>,
     /// Maximum annualised ROC (percent) — filters out suspiciously high returns.
@@ -211,10 +209,8 @@ async fn get_recommendations(
 
     let filter_params = crate::strategy::wheel::FilterParams {
         min_open_interest: req.min_open_interest,
-        cc_delta_min: req.cc_delta_min,
-        cc_delta_max: req.cc_delta_max,
-        csp_delta_min: req.csp_delta_min,
-        csp_delta_max: req.csp_delta_max,
+        cc_max_assignment_pct: req.cc_max_assignment_pct,
+        csp_max_assignment_pct: req.csp_max_assignment_pct,
         min_annualised_roc: req.min_annualised_roc,
         max_annualised_roc: req.max_annualised_roc,
     };

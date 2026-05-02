@@ -89,10 +89,8 @@ export interface RecommendationRequest {
   earnings_calendar?: EarningsCalendar[];
   analyst_trends?: AnalystTrend[];
   min_open_interest?: number;
-  cc_delta_min?: number;
-  cc_delta_max?: number;
-  csp_delta_min?: number;
-  csp_delta_max?: number;
+  cc_max_assignment_pct?: number;
+  csp_max_assignment_pct?: number;
   min_annualised_roc?: number;
   max_annualised_roc?: number;
 }
