@@ -19,6 +19,7 @@ use adapters::OptionsDataProvider;
 use adapters::yahoo_finance::{YahooFinanceAdapter, YahooSession};
 use cache::TtlCache;
 use models::{AnalystTrend, EarningsCalendar, EarningsResult, FinancialHealth, ScreenerCandidate, StockHolding, StockMarketData};
+use routes::discovery::DiscoveryItem;
 use routes::news::NewsItem;
 
 // ── Application state ─────────────────────────────────────────────────────────
@@ -44,6 +45,8 @@ pub struct AppState {
     pub news_cache: RwLock<TtlCache<Vec<NewsItem>>>,
     /// Cache for market data — TTL 2 minutes, max 50 items.
     pub market_data_cache: RwLock<TtlCache<StockMarketData>>,
+    /// Cache for discovery screener results — TTL 24 hours, max 20 items.
+    pub discovery_cache: RwLock<TtlCache<Vec<DiscoveryItem>>>,
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────
@@ -77,6 +80,7 @@ async fn main() -> Result<()> {
         screener_cache: RwLock::new(TtlCache::new(50, Duration::from_secs(3 * 3600))),
         news_cache: RwLock::new(TtlCache::new(50, Duration::from_secs(15 * 60))),
         market_data_cache: RwLock::new(TtlCache::new(50, Duration::from_secs(2 * 60))),
+        discovery_cache: RwLock::new(TtlCache::new(20, Duration::from_secs(24 * 3600))),
     });
 
     // CORS – allow all origins in development. Tighten for production.

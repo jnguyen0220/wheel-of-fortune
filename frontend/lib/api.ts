@@ -10,7 +10,6 @@ import type {
   AnalystTrend,
   OptionsChain,
   FinancialHealth,
-  ScreenerCandidate,
   NewsItem,
 } from "./types";
 
@@ -145,24 +144,7 @@ export async function getFinancialHealth(
   );
 }
 
-// ── Screener API ─────────────────────────────────────────────────────────────
-
-export async function getScreenerCandidates(
-  tickers?: string[],
-  minScore?: number,
-): Promise<ScreenerCandidate[]> {
-  const params = new URLSearchParams();
-  if (tickers && tickers.length > 0) {
-    params.set("tickers", tickers.join(","));
-  }
-  if (minScore !== undefined) {
-    params.set("min_score", minScore.toString());
-  }
-  const qs = params.toString();
-  return apiFetch<ScreenerCandidate[]>(`/api/screener${qs ? `?${qs}` : ""}`);
-}
-
-// ── News API ─────────────────────────────────────────────────────────────────
+// ── Batch API ────────────────────────────────────────────────────────────────
 
 export async function getNews(tickers?: string[]): Promise<NewsItem[]> {
   const params = new URLSearchParams();
@@ -172,8 +154,6 @@ export async function getNews(tickers?: string[]): Promise<NewsItem[]> {
   const qs = params.toString();
   return apiFetch<NewsItem[]>(`/api/news${qs ? `?${qs}` : ""}`);
 }
-
-// ── Batch API ────────────────────────────────────────────────────────────────
 
 export interface BatchResponse {
   market_data: Record<string, StockMarketData>;
@@ -188,4 +168,18 @@ export async function getBatchData(tickers: string[]): Promise<BatchResponse> {
   return apiFetch<BatchResponse>(
     `/api/batch?tickers=${encodeURIComponent(params)}`,
   );
+}
+
+// ── Discovery API ────────────────────────────────────────────────────────────
+
+import type { DiscoveryItem } from "./types";
+
+export async function getDiscovery(screenerId: string): Promise<DiscoveryItem[]> {
+  return apiFetch<DiscoveryItem[]>(
+    `/api/discovery?screener_id=${encodeURIComponent(screenerId)}`,
+  );
+}
+
+export async function prefetchDiscovery(): Promise<void> {
+  await apiFetch<unknown>(`/api/discovery/prefetch`);
 }

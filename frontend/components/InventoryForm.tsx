@@ -4,8 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import type { StockHolding, StockHoldingInput, StockMarketData, EarningsCalendar, EarningsResult, AnalystTrend, FinancialHealth } from "@/lib/types";
 import { addHolding, deleteHolding, updateHolding, getBatchData } from "@/lib/api";
 import { healthScoreColor } from "@/lib/format";
-import Screener from "./Screener";
-import StockNews from "./StockNews";
+import Discovery from "./Discovery";
 import TickerLink from "./TickerLink";
 
 interface Props {
@@ -47,7 +46,7 @@ export default function InventoryForm({
   const [earningsData, setEarningsData] = useState<Record<string, { calendar: EarningsCalendar[]; history: EarningsResult[] }>>({});
   const [analystTrends, setAnalystTrends] = useState<Record<string, AnalystTrend[]>>({});
   const [healthData, setHealthData] = useState<Record<string, FinancialHealth>>({});
-  const [internalTab, setInternalTab] = useState<"add" | "screener" | "news">("add");
+  const [internalTab, setInternalTab] = useState<"add" | "discovery">("add");
 
   // Inline qty editing state
   const [editingQtyId, setEditingQtyId] = useState<string | null>(null);
@@ -58,6 +57,41 @@ export default function InventoryForm({
   const [editingCostId, setEditingCostId] = useState<string | null>(null);
   const [costInput, setCostInput] = useState("");
   const costRef = useRef<HTMLInputElement>(null);
+
+  // Sort state
+  type SortColumn = "ticker" | "health" | "price";
+  const [sortCol, setSortCol] = useState<SortColumn>("ticker");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  function toggleSort(col: SortColumn) {
+    if (sortCol === col) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortCol(col);
+      setSortDir("asc");
+    }
+  }
+
+  function sortedHoldings() {
+    return [...holdings].sort((a, b) => {
+      let cmp = 0;
+      switch (sortCol) {
+        case "ticker":
+          cmp = a.ticker.localeCompare(b.ticker);
+          break;
+        case "health":
+          cmp = (healthData[a.ticker]?.health_score ?? -1) - (healthData[b.ticker]?.health_score ?? -1);
+          break;
+        case "price": {
+          const pa = marketData[a.ticker]?.price ?? a.current_price;
+          const pb = marketData[b.ticker]?.price ?? b.current_price;
+          cmp = pa - pb;
+          break;
+        }
+      }
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+  }
 
   const refreshMarketData = useCallback(async () => {
     const allTickers = [...new Set(holdings.map((h) => h.ticker))].sort();
@@ -189,12 +223,24 @@ export default function InventoryForm({
   }
 
   function handleDownloadTemplate() {
-    const csv = "Ticker,Shares,Avg Cost\nAAPL,100,150.00\n";
+    const csv = "Ticker\nAAPL\n";
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = "holdings_template.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function handleExportCsv() {
+    const tickers = [...new Set(holdings.map((h) => h.ticker))].sort();
+    const csv = "Ticker\n" + tickers.join("\n") + "\n";
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "inventory.csv";
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -211,22 +257,18 @@ export default function InventoryForm({
       if (lines.length < 2) throw new Error("CSV must have a header row and at least one data row.");
       const header = lines[0].split(",").map((h) => h.trim().toLowerCase());
       const tickerIdx = header.indexOf("ticker");
-      const sharesIdx = header.indexOf("shares");
-      const costIdx = header.findIndex((h) => h.includes("avg") || h.includes("cost"));
-      if (tickerIdx === -1 || sharesIdx === -1 || costIdx === -1)
-        throw new Error("CSV must have columns: Ticker, Shares, Avg Cost");
+      if (tickerIdx === -1)
+        throw new Error("CSV must have a Ticker column");
       const errors: string[] = [];
       for (let i = 1; i < lines.length; i++) {
         const cols = lines[i].split(",").map((c) => c.trim());
         const ticker = cols[tickerIdx]?.toUpperCase();
-        const shares = parseFloat(cols[sharesIdx]);
-        const cost = parseFloat(cols[costIdx]);
-        if (!ticker || isNaN(shares) || isNaN(cost)) {
-          errors.push(`Row ${i + 1}: invalid data`);
+        if (!ticker) {
+          errors.push(`Row ${i + 1}: missing ticker`);
           continue;
         }
         try {
-          await addHolding({ ticker, shares, cost_basis: cost, current_price: 0 });
+          await addHolding({ ticker, shares: 0, cost_basis: 0, current_price: 0 });
         } catch {
           errors.push(`Row ${i + 1}: failed to add ${ticker}`);
         }
@@ -246,13 +288,22 @@ export default function InventoryForm({
       {/* Internal tabs */}
       <div className="flex items-center gap-3 p-4 border-b border-[#30363d]">
         <div className="tab-group">
-          {(["add", "screener", "news"] as const).map((tab) => (
+          {(["add", "discovery"] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setInternalTab(tab)}
               className={internalTab === tab ? "tab-btn-active" : "tab-btn-inactive"}
             >
-              {tab === "add" ? "Add Ticker" : tab === "screener" ? "Undervalued Stocks" : "Stock News"}
+              {tab === "add" ? (
+                <span className="relative">
+                  Add Ticker
+                  {holdings.length > 0 && (
+                    <span className="absolute -top-2 -right-4 inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 text-[9px] font-bold rounded-full bg-[#f85149] text-white shadow-sm">
+                      {holdings.length}
+                    </span>
+                  )}
+                </span>
+              ) : "Discovery"}
             </button>
           ))}
         </div>
@@ -311,6 +362,19 @@ export default function InventoryForm({
               disabled={importing}
             />
           </label>
+          <div className="toolbar-divider" />
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            disabled={holdings.length === 0}
+            className="toolbar-btn disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Export inventory to CSV"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M7.5 12l4.5 4.5m0 0L16.5 12M12 16.5V3" />
+            </svg>
+            Export
+          </button>
         </div>
 
         {/* Add form */}
@@ -454,13 +518,17 @@ export default function InventoryForm({
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-[#30363d]">
-                  <th className="px-3 py-2 text-left th">Ticker</th>
-                  <th className="px-3 py-2 text-right th whitespace-nowrap">Health</th>
+                  <th className="px-3 py-2 text-left th cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => toggleSort("ticker")}>
+                    Ticker{sortCol === "ticker" && <span className="ml-1 text-[#58a6ff]">{sortDir === "asc" ? "▲" : "▼"}</span>}
+                  </th>
+                  <th className="px-3 py-2 text-right th whitespace-nowrap cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => toggleSort("health")}>
+                    Health{sortCol === "health" && <span className="ml-1 text-[#58a6ff]">{sortDir === "asc" ? "▲" : "▼"}</span>}
+                  </th>
                   <th className="px-3 py-2 text-center th">Type</th>
                   <th className="px-3 py-2 text-right th">Qty</th>
                   <th className="px-3 py-2 text-right th">Avg Cost</th>
-                  <th className="px-3 py-2 text-right th whitespace-nowrap">
-                    Price
+                  <th className="px-3 py-2 text-right th whitespace-nowrap cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => toggleSort("price")}>
+                    Price{sortCol === "price" && <span className="ml-1 text-[#58a6ff]">{sortDir === "asc" ? "▲" : "▼"}</span>}
                     {loadingMarket && <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-[#58a6ff] animate-pulse align-middle" />}
                   </th>
                   <th className="px-3 py-2 text-right th whitespace-nowrap">P&amp;L</th>
@@ -472,7 +540,7 @@ export default function InventoryForm({
                 </tr>
               </thead>
               <tbody>
-                {[...holdings].sort((a, b) => a.ticker.localeCompare(b.ticker)).map((h, idx) => {
+                {sortedHoldings().map((h, idx) => {
                   const md = marketData[h.ticker];
                   const price = md?.price ?? h.current_price;
                   const pnlPct =
@@ -672,9 +740,9 @@ export default function InventoryForm({
         </div>
         {/* End Add Ticker tab */}
 
-        {/* Screener tab content */}
-        <div className={internalTab === "screener" ? "" : "hidden"}>
-          <Screener
+        {/* Discovery tab content */}
+        <div className={internalTab === "discovery" ? "" : "hidden"}>
+          <Discovery
             existingTickers={holdings.map(h => h.ticker)}
             onAddTicker={async (ticker) => {
               try {
@@ -690,45 +758,6 @@ export default function InventoryForm({
                   onChanged();
                 } catch { /* ignore */ }
               }
-            }}
-            onAddTickers={async (tickers) => {
-              for (const ticker of tickers) {
-                try {
-                  await addHolding({ ticker, shares: 0, cost_basis: 0, current_price: 0 });
-                } catch { /* ignore duplicates */ }
-              }
-              onChanged();
-              setInternalTab("add");
-            }}
-          />
-        </div>
-
-        {/* News tab content */}
-        <div className={internalTab === "news" ? "" : "hidden"}>
-          <StockNews
-            existingTickers={holdings.map(h => h.ticker)}
-            onAddTicker={async (ticker) => {
-              try {
-                await addHolding({ ticker, shares: 0, cost_basis: 0, current_price: 0 });
-                onChanged();
-              } catch { /* ignore duplicates */ }
-            }}
-            onRemoveTicker={async (ticker) => {
-              const holding = holdings.find(h => h.ticker.toUpperCase() === ticker.toUpperCase());
-              if (holding) {
-                try {
-                  await deleteHolding(holding.id);
-                  onChanged();
-                } catch { /* ignore */ }
-              }
-            }}
-            onAddTickers={async (tickers) => {
-              for (const ticker of tickers) {
-                try {
-                  await addHolding({ ticker, shares: 0, cost_basis: 0, current_price: 0 });
-                } catch { /* ignore duplicates */ }
-              }
-              onChanged();
             }}
           />
         </div>
