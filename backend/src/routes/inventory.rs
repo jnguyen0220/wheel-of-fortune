@@ -13,7 +13,7 @@ use crate::AppState;
 
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
-        .route("/", get(get_inventory).post(add_holding))
+        .route("/", get(get_inventory).post(add_holding).delete(clear_all_holdings))
         .route("/:id", get(get_inventory).put(update_holding).delete(delete_holding))
         .with_state(state)
 }
@@ -59,6 +59,15 @@ async fn update_holding(
     } else {
         (StatusCode::NOT_FOUND, Json(None))
     }
+}
+
+/// DELETE /api/inventory — remove all holdings
+async fn clear_all_holdings(
+    State(state): State<Arc<AppState>>,
+) -> StatusCode {
+    let mut holdings = state.inventory.write().await;
+    holdings.clear();
+    StatusCode::NO_CONTENT
 }
 
 /// DELETE /api/inventory/:id — remove a holding

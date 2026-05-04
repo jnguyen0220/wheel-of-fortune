@@ -69,6 +69,10 @@ export async function deleteHolding(id: string): Promise<void> {
   await apiFetch<void>(`/api/inventory/${id}`, { method: "DELETE" });
 }
 
+export async function clearAllHoldings(): Promise<void> {
+  await apiFetch<void>(`/api/inventory`, { method: "DELETE" });
+}
+
 // ── Market Data API ──────────────────────────────────────────────────────────
 
 export async function getMarketData(
