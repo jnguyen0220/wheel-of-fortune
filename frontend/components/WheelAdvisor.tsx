@@ -136,6 +136,13 @@ export default function WheelAdvisor() {
         </div>
       </header>
 
+      {/* Disclaimer banner */}
+      <div className="bg-[#d299220f] border-b border-[#d2992230]">
+        <p className="max-w-7xl mx-auto px-6 py-1.5 text-[10px] text-[#d29922] text-center leading-relaxed">
+          <strong>Disclaimer:</strong> This application is for educational and informational purposes only and does not constitute financial, investment, or trading advice. Use at your own risk. See full disclaimer below.
+        </p>
+      </div>
+
       <div className="max-w-7xl mx-auto px-6 pt-4">
         {/* Tab nav */}
         <div className="flex items-center gap-3 mb-4">
@@ -247,6 +254,23 @@ export default function WheelAdvisor() {
           </div>
         </div>
       </div>
+
+      {/* Footer disclaimer */}
+      <footer className="mt-auto bg-[#0d1117] border-t border-[#30363d] py-6">
+        <div className="max-w-7xl mx-auto px-6 text-[10px] text-[#8b949e] leading-relaxed space-y-2">
+          <p className="font-semibold text-[#d29922] uppercase tracking-wide text-[9px]">Important Disclaimer</p>
+          <p>
+            This application is provided strictly for <strong className="text-[#c9d1d9]">educational and informational purposes only</strong>. Nothing contained herein constitutes financial advice, investment advice, trading advice, or any other form of professional advice. The information, data, analyses, options strategies, and recommendations presented by this application should not be construed as a recommendation or solicitation to buy, sell, or hold any security, financial product, or instrument.
+          </p>
+          <p>
+            Trading options and other financial instruments involves substantial risk of loss and is not suitable for all investors. Past performance is not indicative of future results. You should consult with a qualified financial advisor before making any investment decisions. The creators, developers, and operators of this application make no representations or warranties regarding the accuracy, completeness, or timeliness of any information provided.
+          </p>
+          <p>
+            <strong className="text-[#c9d1d9]">By using this application, you acknowledge and agree</strong> that: (a) you are solely responsible for your own investment decisions and any resulting gains or losses; (b) the creators and operators of this application shall not be liable for any direct, indirect, incidental, consequential, or punitive damages arising from your use of or reliance on the information provided; and (c) you use this application entirely at your own risk.
+          </p>
+          <p className="text-[#6e7681]">&copy; {new Date().getFullYear()} Wheel Advisor &mdash; For educational use only. Not a registered investment advisor.</p>
+        </div>
+      </footer>
     </div>
     </HealthPopupProvider>
   );
