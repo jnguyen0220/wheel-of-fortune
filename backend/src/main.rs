@@ -80,7 +80,7 @@ async fn main() -> Result<()> {
         screener_cache: RwLock::new(TtlCache::new(50, Duration::from_secs(3 * 3600))),
         news_cache: RwLock::new(TtlCache::new(50, Duration::from_secs(15 * 60))),
         market_data_cache: RwLock::new(TtlCache::new(50, Duration::from_secs(2 * 60))),
-        discovery_cache: RwLock::new(TtlCache::new(20, Duration::from_secs(24 * 3600))),
+        discovery_cache: RwLock::new(TtlCache::new(50, Duration::from_secs(24 * 3600))),
     });
 
     // CORS – allow all origins in development. Tighten for production.

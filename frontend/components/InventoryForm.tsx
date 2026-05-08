@@ -491,6 +491,45 @@ export default function InventoryForm({
           </div>
         )}
 
+        {/* Portfolio summary */}
+        {holdings.length > 0 && (() => {
+          const totalCost = holdings.reduce((sum, h) => sum + h.cost_basis * h.shares, 0);
+          const totalMarket = holdings.reduce((sum, h) => {
+            const p = marketData[h.ticker]?.price ?? h.current_price;
+            return sum + p * h.shares;
+          }, 0);
+          const totalPnl = totalMarket - totalCost;
+          const totalPnlPct = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
+          const cspCount = holdings.filter(h => h.shares === 0).length;
+          const ccCount = holdings.filter(h => h.shares > 0).length;
+          const uniqueTickers = new Set(holdings.map(h => h.ticker)).size;
+          return (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+              <div className="bg-[#0d1117] border border-[#21262d] rounded-lg px-4 py-3">
+                <p className="text-[9px] font-semibold text-[#8b949e] uppercase tracking-widest mb-1">Market Value</p>
+                <p className="text-base font-bold text-[#c9d1d9] tabular-nums">${totalMarket.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+              </div>
+              <div className="bg-[#0d1117] border border-[#21262d] rounded-lg px-4 py-3">
+                <p className="text-[9px] font-semibold text-[#8b949e] uppercase tracking-widest mb-1">Unrealized P&L</p>
+                <p className={`text-base font-bold tabular-nums ${totalPnl >= 0 ? "text-[#3fb950]" : "text-[#f85149]"}`}>
+                  {totalPnl >= 0 ? "+" : ""}${Math.abs(totalPnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  <span className="text-xs ml-1.5 opacity-70">({totalPnlPct >= 0 ? "+" : ""}{totalPnlPct.toFixed(2)}%)</span>
+                </p>
+              </div>
+              <div className="bg-[#0d1117] border border-[#21262d] rounded-lg px-4 py-3">
+                <p className="text-[9px] font-semibold text-[#8b949e] uppercase tracking-widest mb-1">Positions</p>
+                <p className="text-base font-bold text-[#c9d1d9] tabular-nums">{uniqueTickers}
+                  <span className="text-[10px] font-medium text-[#8b949e] ml-2">{ccCount} CC &middot; {cspCount} CSP</span>
+                </p>
+              </div>
+              <div className="bg-[#0d1117] border border-[#21262d] rounded-lg px-4 py-3">
+                <p className="text-[9px] font-semibold text-[#8b949e] uppercase tracking-widest mb-1">Cost Basis</p>
+                <p className="text-base font-bold text-[#c9d1d9] tabular-nums">${totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Holdings table */}
         {holdings.length > 0 && (
           <div className="flex items-center justify-between mb-2">
@@ -540,9 +579,9 @@ export default function InventoryForm({
             <p className="text-[#484f58] text-[10px] mt-1">Add a ticker above — set lots to 0 for CSP or &gt; 0 for CC</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-480px)] min-h-[200px]">
             <table className="w-full text-xs">
-              <thead>
+              <thead className="sticky top-0 z-10 bg-[#0d1117]">
                 <tr className="border-b border-[#30363d]">
                   <th className="px-3 py-2 text-left th cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => toggleSort("ticker")}>
                     Ticker{sortCol === "ticker" && <span className="ml-1 text-[#58a6ff]">{sortDir === "asc" ? "▲" : "▼"}</span>}

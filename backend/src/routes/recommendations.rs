@@ -164,6 +164,12 @@ async fn get_recommendations(
                             daily_high: if has_contracts { chain_price * 1.02 } else { 0.0 },
                             week52_low: if has_contracts { chain_price * 0.75 } else { 0.0 },
                             week52_high: if has_contracts { chain_price * 1.30 } else { 0.0 },
+                            has_pre_post_market_data: false,
+                            market_state: "REGULAR".to_string(),
+                            pre_market_price: None,
+                            pre_market_change_percent: None,
+                            post_market_price: None,
+                            post_market_change_percent: None,
                         },
                     ),
                 }

@@ -29,32 +29,34 @@ use crate::adapters::OptionsDataProvider;
 use crate::models::{AnalystTrend, EarningsCalendar, EarningsResult};
 use crate::models::{OptionsChain, OptionsContract, OptionType, StockMarketData};
 
-// ── Market data response types ────────────────────────────────────────────────
+// ── Market data response types (quote API) ───────────────────────────────────
 
 #[derive(Debug, Deserialize)]
-struct YahooChartResponse {
-    chart: YahooChart,
+#[serde(rename_all = "camelCase")]
+struct YahooQuoteResponse {
+    quote_response: Option<YahooQuoteResponseInner>,
 }
 
 #[derive(Debug, Deserialize)]
-struct YahooChart {
-    result: Option<Vec<YahooChartResult>>,
-    error: Option<YahooError>,
-}
-
-#[derive(Debug, Deserialize)]
-struct YahooChartResult {
-    meta: YahooMeta,
+struct YahooQuoteResponseInner {
+    result: Option<Vec<YahooQuoteResult>>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct YahooMeta {
+struct YahooQuoteResult {
+    symbol: Option<String>,
     regular_market_price: Option<f64>,
     regular_market_day_high: Option<f64>,
     regular_market_day_low: Option<f64>,
     fifty_two_week_high: Option<f64>,
     fifty_two_week_low: Option<f64>,
+    has_pre_post_market_data: Option<bool>,
+    market_state: Option<String>,
+    pre_market_price: Option<f64>,
+    pre_market_change_percent: Option<f64>,
+    post_market_price: Option<f64>,
+    post_market_change_percent: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -66,29 +68,26 @@ struct YahooError {
 
 /// Fetch live market data for `ticker` from Yahoo Finance.
 ///
-/// Makes a single HTTPS request to Yahoo Finance's chart API and extracts
-/// price, daily range, and 52-week range from the `meta` field.
+/// Uses the quote API (v7) which requires crumb auth and returns price,
+/// daily range, 52-week range, and pre/post market data.
 #[instrument(skip(client))]
 pub async fn fetch_yahoo_market_data(
     client: &Client,
+    crumb: &str,
     ticker: &str,
 ) -> Result<StockMarketData> {
     let url = format!(
-        "https://query1.finance.yahoo.com/v8/finance/chart/{}?interval=1d&range=5d",
-        ticker.to_uppercase()
+        "https://query1.finance.yahoo.com/v7/finance/quote?symbols={}&crumb={}",
+        ticker.to_uppercase(),
+        crumb
     );
 
     let resp = client
         .get(&url)
-        .header(
-            "User-Agent",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
-             (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        )
         .header("Accept", "application/json")
         .send()
         .await
-        .context("HTTP request to Yahoo Finance failed")?;
+        .context("HTTP request to Yahoo Finance quote API failed")?;
 
     if !resp.status().is_success() {
         anyhow::bail!(
@@ -98,34 +97,24 @@ pub async fn fetch_yahoo_market_data(
         );
     }
 
-    let body: YahooChartResponse = resp
+    let body: YahooQuoteResponse = resp
         .json()
         .await
-        .context("Failed to parse Yahoo Finance JSON response")?;
+        .context("Failed to parse Yahoo Finance quote JSON response")?;
 
-    if let Some(err) = body.chart.error {
-        anyhow::bail!(
-            "Yahoo Finance API error for {}: {}",
-            ticker,
-            err.description.unwrap_or_else(|| "unknown".to_string())
-        );
-    }
-
-    let result = body
-        .chart
-        .result
+    let quote = body
+        .quote_response
+        .and_then(|qr| qr.result)
         .and_then(|r| r.into_iter().next())
-        .context("Yahoo Finance returned empty result array")?;
+        .context("Yahoo Finance returned empty quote result")?;
 
-    let meta = result.meta;
-
-    let price = meta
+    let price = quote
         .regular_market_price
         .context("Missing regularMarketPrice")?;
-    let daily_high = meta.regular_market_day_high.unwrap_or(price);
-    let daily_low = meta.regular_market_day_low.unwrap_or(price);
-    let week52_high = meta.fifty_two_week_high.unwrap_or(price);
-    let week52_low = meta.fifty_two_week_low.unwrap_or(price);
+    let daily_high = quote.regular_market_day_high.unwrap_or(price);
+    let daily_low = quote.regular_market_day_low.unwrap_or(price);
+    let week52_high = quote.fifty_two_week_high.unwrap_or(price);
+    let week52_low = quote.fifty_two_week_low.unwrap_or(price);
 
     Ok(StockMarketData {
         ticker: ticker.to_uppercase(),
@@ -134,6 +123,12 @@ pub async fn fetch_yahoo_market_data(
         daily_low,
         week52_high,
         week52_low,
+        has_pre_post_market_data: quote.has_pre_post_market_data.unwrap_or(false),
+        market_state: quote.market_state.unwrap_or_else(|| "REGULAR".to_string()),
+        pre_market_price: quote.pre_market_price,
+        pre_market_change_percent: quote.pre_market_change_percent,
+        post_market_price: quote.post_market_price,
+        post_market_change_percent: quote.post_market_change_percent,
     })
 }
 
@@ -749,8 +744,10 @@ impl OptionsDataProvider for YahooFinanceAdapter {
     }
 
     async fn fetch_stock_market_data(&self, ticker: &str) -> Result<StockMarketData> {
-        // Use the shared HTTP client for the chart endpoint (no crumb needed).
-        fetch_yahoo_market_data(&self.session.http, ticker).await
+        // Use the quote API with crumb auth for extended hours data.
+        let (client, crumb) = self.session.get().await
+            .context("Yahoo Finance crumb acquisition failed")?;
+        fetch_yahoo_market_data(&client, &crumb, ticker).await
     }
 }
 

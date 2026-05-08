@@ -22,23 +22,65 @@ interface ScreenerDef {
   icon: string;
 }
 
-const SCREENERS: ScreenerDef[] = [
-  { id: "most_actives", label: "Most Active", description: "Highest volume today", icon: "📊" },
-  { id: "day_gainers", label: "Day Gainers", description: "Biggest gains today", icon: "📈" },
-  { id: "day_losers", label: "Day Losers", description: "Biggest losses today", icon: "📉" },
-  { id: "most_shorted_stocks", label: "Most Shorted", description: "Highest short interest", icon: "🎯" },
-  { id: "undervalued_large_caps", label: "Undervalued Large Caps", description: "Below intrinsic value", icon: "💎" },
-  { id: "undervalued_growth_stocks", label: "Undervalued Growth", description: "Growth at a discount", icon: "🌱" },
-  { id: "growth_technology_stocks", label: "Growth Tech", description: "Strong tech growth", icon: "🚀" },
-  { id: "aggressive_small_caps", label: "Aggressive Small Caps", description: "High growth potential", icon: "⚡" },
-  { id: "small_cap_gainers", label: "Small Cap Gainers", description: "Small caps gaining", icon: "🔥" },
-  { id: "conservative_foreign_funds", label: "Conservative Foreign", description: "Low-risk international", icon: "🌍" },
-  { id: "high_yield_bond", label: "High Yield Bonds", description: "Above-average yields", icon: "💰" },
-  { id: "portfolio_anchors", label: "Portfolio Anchors", description: "Stable foundation", icon: "⚓" },
-  { id: "solid_large_growth_funds", label: "Large Growth Funds", description: "Top-rated large growth", icon: "🏦" },
-  { id: "solid_midcap_growth_funds", label: "Midcap Growth Funds", description: "Top-rated midcap", icon: "📦" },
-  { id: "top_mutual_funds", label: "Top Mutual Funds", description: "Highest-rated overall", icon: "🏆" },
+interface ScreenerCategory {
+  label: string;
+  screeners: ScreenerDef[];
+}
+
+const SCREENER_CATEGORIES: ScreenerCategory[] = [
+  {
+    label: "Market Movers",
+    screeners: [
+      { id: "most_actives", label: "Most Active", description: "Highest volume today", icon: "📊" },
+      { id: "day_gainers", label: "Day Gainers", description: "Biggest gains today", icon: "📈" },
+      { id: "day_losers", label: "Day Losers", description: "Biggest losses today", icon: "📉" },
+      { id: "most_shorted_stocks", label: "Most Shorted", description: "Highest short interest", icon: "🎯" },
+      { id: "most_active_penny_stocks", label: "Active Penny Stocks", description: "Most traded penny stocks", icon: "🪙" },
+      { id: "recent_52_week_highs", label: "52-Week Highs", description: "Stocks at 52-week highs", icon: "⬆️" },
+      { id: "recent_52_week_lows", label: "52-Week Lows", description: "Stocks at 52-week lows", icon: "⬇️" },
+    ],
+  },
+  {
+    label: "Sentiment & Signals",
+    screeners: [
+      { id: "bullish_stocks_right_now", label: "Bullish Now", description: "Bullish technical signals", icon: "🐂" },
+      { id: "bearish_stocks_right_now", label: "Bearish Now", description: "Bearish technical signals", icon: "🐻" },
+      { id: "upside_breakout_stocks_daily", label: "Upside Breakout", description: "Daily upside breakouts", icon: "💥" },
+    ],
+  },
+  {
+    label: "Value & Growth",
+    screeners: [
+      { id: "undervalued_large_caps", label: "Undervalued Large Caps", description: "Below intrinsic value", icon: "💎" },
+      { id: "undervalued_growth_stocks", label: "Undervalued Growth", description: "Growth at a discount", icon: "🌱" },
+      { id: "strong_undervalued_stocks", label: "Strong Undervalued", description: "Deeply undervalued picks", icon: "💰" },
+      { id: "undervalued_wide_moat_stocks", label: "Wide Moat Undervalued", description: "Undervalued with competitive edge", icon: "🏰" },
+      { id: "growth_technology_stocks", label: "Growth Tech", description: "Strong tech growth", icon: "🚀" },
+      { id: "aggressive_small_caps", label: "Aggressive Small Caps", description: "High growth potential", icon: "⚡" },
+      { id: "small_cap_gainers", label: "Small Cap Gainers", description: "Small caps gaining", icon: "🔥" },
+    ],
+  },
+  {
+    label: "Ratings",
+    screeners: [
+      { id: "morningstar_five_star_stocks", label: "Morningstar 5-Star", description: "Top Morningstar rated", icon: "⭐" },
+    ],
+  },
+  {
+    label: "Funds & Bonds",
+    screeners: [
+      { id: "conservative_foreign_funds", label: "Conservative Foreign", description: "Low-risk international", icon: "🌍" },
+      { id: "high_yield_bond", label: "High Yield Bonds", description: "Above-average yields", icon: "💵" },
+      { id: "portfolio_anchors", label: "Portfolio Anchors", description: "Stable foundation", icon: "⚓" },
+      { id: "solid_large_growth_funds", label: "Large Growth Funds", description: "Top-rated large growth", icon: "📊" },
+      { id: "solid_midcap_growth_funds", label: "Midcap Growth Funds", description: "Top-rated midcap", icon: "📦" },
+      { id: "top_mutual_funds", label: "Top Mutual Funds", description: "Highest-rated overall", icon: "🏆" },
+    ],
+  },
 ];
+
+// Flat list for backwards compat
+const SCREENERS: ScreenerDef[] = SCREENER_CATEGORIES.flatMap((c) => c.screeners);
 
 export default function Discovery({ existingTickers = [], onAddTicker, onRemoveTicker }: DiscoveryProps) {
   const [activeScreener, setActiveScreener] = useState<string | null>(null);
@@ -51,6 +93,8 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 25;
   const prefetched = useRef(false);
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const tableScrollRef = useRef<HTMLDivElement>(null);
 
   // Prefetch all screeners on first mount
   useEffect(() => {
@@ -78,6 +122,7 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
     setSortField("rank");
     setSortDir("asc");
     setPage(0);
+    resultsRef.current?.scrollTo({ top: 0 });
     try {
       const results = await getDiscovery(screenerId);
       setItems(results);
@@ -122,8 +167,19 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
   const activeScreenerDef = SCREENERS.find((s) => s.id === activeScreener);
   const existingSet = new Set(existingTickers.map(t => t.toUpperCase()));
 
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(() => new Set(SCREENER_CATEGORIES.map(c => c.label)));
+
+  function toggleCategory(label: string) {
+    setExpandedCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) next.delete(label);
+      else next.add(label);
+      return next;
+    });
+  }
+
   return (
-    <div className="flex gap-4 min-h-[480px]">
+    <div className="flex gap-4 h-[calc(100vh-180px)] min-h-[480px]">
       {/* Left panel: screener list */}
       <div className="w-[260px] shrink-0 rounded-lg border border-[#30363d] bg-[#0d1117] overflow-hidden flex flex-col shadow-sm">
         <div className="flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-[#161b22] to-[#0d1117] border-b border-[#30363d]">
@@ -136,30 +192,46 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
           </div>
         </div>
         <div className="flex-1 overflow-y-auto">
-          {SCREENERS.map((s) => {
-            const isActive = activeScreener === s.id;
+          {SCREENER_CATEGORIES.map((cat) => {
+            const isExpanded = expandedCategories.has(cat.label);
             return (
-              <div
-                key={s.id}
-                onClick={() => loadScreener(s.id)}
-                className={`flex items-center gap-2.5 px-4 py-2.5 cursor-pointer transition-all duration-150 border-b border-[#21262d]/60 last:border-b-0 ${
-                  isActive
-                    ? "bg-[#161b22] border-l-[3px] border-l-[#58a6ff] pl-[13px]"
-                    : "hover:bg-[#161b22]/50 border-l-[3px] border-l-transparent"
-                }`}
-              >
-                <span className="text-sm leading-none">{s.icon}</span>
-                <div className="flex-1 min-w-0">
-                  <span className={`text-[11px] font-semibold block truncate ${isActive ? "text-[#58a6ff]" : "text-[#c9d1d9]"}`}>
-                    {s.label}
-                  </span>
-                  <span className="text-[9px] text-[#484f58] block truncate">{s.description}</span>
-                </div>
-                {isActive && (
-                  <svg className="w-3 h-3 text-[#58a6ff] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <div key={cat.label}>
+                <button
+                  onClick={() => toggleCategory(cat.label)}
+                  className="flex items-center justify-between w-full px-4 py-2 bg-[#161b22]/50 border-b border-[#21262d]/60 hover:bg-[#161b22] transition-colors"
+                >
+                  <span className="text-[9px] font-bold text-[#8b949e] uppercase tracking-widest">{cat.label}</span>
+                  <svg className={`w-3 h-3 text-[#484f58] transition-transform ${isExpanded ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                   </svg>
-                )}
+                </button>
+                {isExpanded && cat.screeners.map((s) => {
+                  const isActive = activeScreener === s.id;
+                  return (
+                    <div
+                      key={s.id}
+                      onClick={() => loadScreener(s.id)}
+                      className={`flex items-center gap-2.5 px-4 py-2 cursor-pointer transition-all duration-150 border-b border-[#21262d]/40 last:border-b-0 ${
+                        isActive
+                          ? "bg-[#161b22] border-l-[3px] border-l-[#58a6ff] pl-[13px]"
+                          : "hover:bg-[#161b22]/50 border-l-[3px] border-l-transparent"
+                      }`}
+                    >
+                      <span className="text-sm leading-none">{s.icon}</span>
+                      <div className="flex-1 min-w-0">
+                        <span className={`text-[11px] font-semibold block truncate ${isActive ? "text-[#58a6ff]" : "text-[#c9d1d9]"}`}>
+                          {s.label}
+                        </span>
+                        <span className="text-[9px] text-[#484f58] block truncate">{s.description}</span>
+                      </div>
+                      {isActive && (
+                        <svg className="w-3 h-3 text-[#58a6ff] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                        </svg>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             );
           })}
@@ -167,7 +239,7 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
       </div>
 
       {/* Right panel: screener results */}
-      <div className="flex-1 rounded-lg border border-[#30363d] bg-[#0d1117] overflow-hidden flex flex-col shadow-sm">
+      <div ref={resultsRef} className="flex-1 rounded-lg border border-[#30363d] bg-[#0d1117] overflow-hidden flex flex-col shadow-sm">
         {!activeScreener ? (
           <div className="flex flex-col items-center justify-center h-full gap-3 py-16">
             <div className="w-12 h-12 rounded-full bg-[#161b22] border border-[#30363d] flex items-center justify-center">
@@ -215,7 +287,7 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
             </div>
 
             {/* Table */}
-            <div className="flex-1 overflow-y-auto">
+            <div ref={tableScrollRef} className="flex-1 overflow-y-auto">
               <table className="w-full text-xs">
                 <thead className="sticky top-0 bg-[#161b22] z-10">
                   <tr className="border-b border-[#30363d]">
@@ -263,6 +335,7 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                       </span>
                     </th>
                     <th className="px-3 py-2.5 text-right th">Change</th>
+                    <th className="px-3 py-2.5 text-center th">Ext Hrs</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -272,7 +345,7 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                     const health = healthData[item.ticker];
                     const inPortfolio = existingSet.has(item.ticker.toUpperCase());
                     return (
-                      <tr key={item.ticker} className={`group transition-colors duration-100 ${inPortfolio ? "bg-[#3fb95008]" : "hover:bg-[#161b22]"}`}>
+                      <tr key={`${item.ticker}-${item.rank}`} className={`group transition-colors duration-100 ${inPortfolio ? "bg-[#3fb95008]" : "hover:bg-[#161b22]"}`}>
                         <td className={`px-3 py-2.5 text-center ${rowBorder}`}>
                           <input
                             type="checkbox"
@@ -339,6 +412,16 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                             {item.change_percent >= 0 ? "+" : ""}{item.change_percent.toFixed(2)}%
                           </span>
                         </td>
+                        <td className={`px-3 py-2.5 text-center ${rowBorder}`}>
+                          {item.has_pre_post_market_data ? (
+                            <span className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full bg-[#388bfd1a] text-[#58a6ff] border border-[#388bfd33]" title="Trades in pre-market & after-hours">
+                              <svg className="w-2 h-2" fill="currentColor" viewBox="0 0 16 16"><circle cx="8" cy="8" r="3"/></svg>
+                              Yes
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-[#484f58]">—</span>
+                          )}
+                        </td>
                       </tr>
                     );
                   })}
@@ -355,7 +438,7 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                 <div className="flex items-center gap-0.5">
                   <button
                     type="button"
-                    onClick={() => setPage((p) => Math.max(0, p - 1))}
+                    onClick={() => { setPage((p) => Math.max(0, p - 1)); tableScrollRef.current?.scrollTo({ top: 0 }); }}
                     disabled={page === 0}
                     className="w-7 h-7 flex items-center justify-center rounded text-[#8b949e] hover:text-[#c9d1d9] hover:bg-[#21262d] disabled:opacity-30 disabled:cursor-not-allowed transition"
                   >
@@ -368,7 +451,7 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                   </span>
                   <button
                     type="button"
-                    onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                    onClick={() => { setPage((p) => Math.min(totalPages - 1, p + 1)); tableScrollRef.current?.scrollTo({ top: 0 }); }}
                     disabled={page >= totalPages - 1}
                     className="w-7 h-7 flex items-center justify-center rounded text-[#8b949e] hover:text-[#c9d1d9] hover:bg-[#21262d] disabled:opacity-30 disabled:cursor-not-allowed transition"
                   >

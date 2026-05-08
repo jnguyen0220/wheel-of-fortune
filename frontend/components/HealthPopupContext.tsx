@@ -402,14 +402,53 @@ function FinancialsTab({ health }: { health?: FinancialHealth }) {
 function PriceTab({ marketData }: { marketData?: StockMarketData }) {
   if (!marketData) return <EmptyState>No price data available.</EmptyState>;
   const fmtPrice = (v: number) => `$${v.toFixed(2)}`;
+  const fmtPct = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
   const pctOf52 = marketData.week52_high > marketData.week52_low
     ? ((marketData.price - marketData.week52_low) / (marketData.week52_high - marketData.week52_low) * 100)
     : 0;
+
+  const isPreMarket = marketData.market_state === "PRE" || marketData.market_state === "PREPRE";
+  const isPostMarket = marketData.market_state === "POST" || marketData.market_state === "POSTPOST";
+  const extPrice = isPreMarket ? marketData.pre_market_price : isPostMarket ? marketData.post_market_price : null;
+  const extPct = isPreMarket ? marketData.pre_market_change_percent : isPostMarket ? marketData.post_market_change_percent : null;
+
   return (
     <div className="space-y-4">
       <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-5 text-center">
         <div className="text-3xl font-bold text-[#f0f6fc] tabular-nums">{fmtPrice(marketData.price)}</div>
-        <div className="text-[10px] text-[#484f58] mt-1 uppercase tracking-wider">Current Price</div>
+        <div className="text-[10px] text-[#484f58] mt-1 uppercase tracking-wider">Regular Market Price</div>
+        {/* Extended hours price */}
+        {extPrice != null && (
+          <div className="mt-2 pt-2 border-t border-[#21262d]">
+            <span className="text-lg font-semibold tabular-nums" style={{ color: extPct != null && extPct >= 0 ? "#3fb950" : "#f85149" }}>
+              {fmtPrice(extPrice)}
+            </span>
+            {extPct != null && (
+              <span className="text-xs ml-1.5" style={{ color: extPct >= 0 ? "#3fb950" : "#f85149" }}>
+                {fmtPct(extPct)}
+              </span>
+            )}
+            <div className="text-[10px] text-[#484f58] mt-0.5 uppercase tracking-wider">
+              {isPreMarket ? "Pre-Market" : "After-Hours"}
+            </div>
+          </div>
+        )}
+        {/* Extended hours badge */}
+        <div className="mt-2 flex items-center justify-center gap-1.5">
+          {marketData.has_pre_post_market_data ? (
+            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-[#388bfd1a] text-[#58a6ff] border border-[#388bfd33]">
+              <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 16 16"><circle cx="8" cy="8" r="3"/></svg>
+              Extended Hours
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-[#21262d] text-[#484f58] border border-[#30363d]">
+              Regular Hours Only
+            </span>
+          )}
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#21262d] text-[#484f58] border border-[#30363d]">
+            {marketData.market_state}
+          </span>
+        </div>
       </div>
 
       <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-4">

@@ -119,9 +119,9 @@ export default function OptionsTab({ chains, earningsCalendar }: Props) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4 h-[calc(100vh-220px)] min-h-[400px]">
       {/* ── Ticker tabs + summary stats ── */}
-      <section className="card-lg">
+      <section className="card-lg shrink-0">
         <div className="px-4 py-3 flex items-center justify-between flex-wrap gap-3">
           {/* Ticker selector */}
           <div className="flex items-center gap-2">
@@ -202,7 +202,7 @@ export default function OptionsTab({ chains, earningsCalendar }: Props) {
       </section>
 
       {/* ── Controls bar: Type toggle + Expiry + DTE slider + Recommendations ── */}
-      <section className="card-lg">
+      <section className="card-lg shrink-0">
         <div className="px-4 py-3 flex items-center gap-4 flex-wrap">
           {/* Call / Put toggle */}
           <div className="flex rounded-md overflow-hidden border border-[#30363d]">
@@ -271,8 +271,8 @@ export default function OptionsTab({ chains, earningsCalendar }: Props) {
 
       {/* ── Options chain table ── */}
       {activeContracts.length > 0 && (
-        <section className="card-lg">
-          <div className="px-4 py-2.5 bg-[#161b22] border-b border-[#21262d] flex items-center justify-between">
+        <section className="card-lg flex-1 min-h-0 flex flex-col overflow-hidden">
+          <div className="px-4 py-2.5 bg-[#161b22] border-b border-[#21262d] flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2">
               <span className={`inline-block w-2 h-2 rounded-full ${activeType === "CALL" ? "bg-[#238636]" : "bg-[#da3633]"}`} />
               <TickerLink ticker={activeTicker} className="text-xs font-semibold text-[#58a6ff] hover:underline cursor-pointer" />
@@ -284,9 +284,9 @@ export default function OptionsTab({ chains, earningsCalendar }: Props) {
             <span className="text-[11px] text-[#484f58] tabular-nums">{activeContracts.length} strike{activeContracts.length !== 1 ? "s" : ""}</span>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="flex-1 overflow-y-auto overflow-x-auto">
             <table className="w-full text-xs">
-              <thead>
+              <thead className="sticky top-0 z-10 bg-[#0d1117]">
                 <tr className="bg-[#0d1117]">
                   <th className="text-left px-3 py-2 font-semibold text-[#8b949e] text-[11px] uppercase tracking-wider">Strike</th>
                   <th className="text-right px-3 py-2 font-semibold text-[#8b949e] text-[11px] uppercase tracking-wider">Bid</th>

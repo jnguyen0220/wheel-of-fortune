@@ -10,6 +10,18 @@ pub struct StockMarketData {
     pub daily_high: f64,
     pub week52_low: f64,
     pub week52_high: f64,
+    /// Whether this stock trades in pre-market and after-hours sessions.
+    pub has_pre_post_market_data: bool,
+    /// Current market state: "PRE", "REGULAR", "POST", "POSTPOST", "PREPRE", "CLOSED".
+    pub market_state: String,
+    /// Pre-market price (if available and market is in PRE state).
+    pub pre_market_price: Option<f64>,
+    /// Pre-market change percent.
+    pub pre_market_change_percent: Option<f64>,
+    /// Post-market price (if available and market is in POST state).
+    pub post_market_price: Option<f64>,
+    /// Post-market change percent.
+    pub post_market_change_percent: Option<f64>,
 }
 
 /// A stock holding in the user's inventory

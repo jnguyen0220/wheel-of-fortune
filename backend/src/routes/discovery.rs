@@ -22,15 +22,29 @@ use crate::AppState;
 
 /// All known screener IDs that we batch-fetch.
 const ALL_SCREENER_IDS: &[&str] = &[
+    // Market movers
     "most_actives",
     "day_gainers",
     "day_losers",
     "most_shorted_stocks",
+    "most_active_penny_stocks",
+    "recent_52_week_highs",
+    "recent_52_week_lows",
+    // Sentiment & signals
+    "bullish_stocks_right_now",
+    "bearish_stocks_right_now",
+    "upside_breakout_stocks_daily",
+    // Value & growth
     "undervalued_large_caps",
     "undervalued_growth_stocks",
+    "strong_undervalued_stocks",
+    "undervalued_wide_moat_stocks",
     "growth_technology_stocks",
     "aggressive_small_caps",
     "small_cap_gainers",
+    // Ratings
+    "morningstar_five_star_stocks",
+    // Funds & bonds
     "conservative_foreign_funds",
     "high_yield_bond",
     "portfolio_anchors",
@@ -56,6 +70,8 @@ pub struct DiscoveryItem {
     pub change_percent: f64,
     pub volume: u64,
     pub market_cap: f64,
+    /// Whether this stock trades in pre-market and after-hours sessions.
+    pub has_pre_post_market_data: bool,
 }
 
 #[derive(Deserialize)]
@@ -142,7 +158,7 @@ async fn batch_fetch_all(state: &Arc<AppState>) -> usize {
         }
 
         // Small delay between requests to avoid rate limiting
-        tokio::time::sleep(Duration::from_millis(300)).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
     }
 
     info!(fetched = fetched, total = ALL_SCREENER_IDS.len(), "Discovery batch fetch complete");
@@ -176,6 +192,7 @@ struct YahooQuote {
     regular_market_change_percent: Option<f64>,
     regular_market_volume: Option<u64>,
     market_cap: Option<f64>,
+    has_pre_post_market_data: Option<bool>,
 }
 
 async fn fetch_predefined_screener(
@@ -224,6 +241,7 @@ async fn fetch_predefined_screener(
                 change_percent: q.regular_market_change_percent.unwrap_or(0.0),
                 volume: q.regular_market_volume.unwrap_or(0),
                 market_cap: q.market_cap.unwrap_or(0.0),
+                has_pre_post_market_data: q.has_pre_post_market_data.unwrap_or(false),
             })
         })
         .collect();

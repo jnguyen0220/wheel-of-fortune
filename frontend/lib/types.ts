@@ -55,6 +55,12 @@ export interface StockMarketData {
   daily_high: number;
   week52_low: number;
   week52_high: number;
+  has_pre_post_market_data: boolean;
+  market_state: string;
+  pre_market_price: number | null;
+  pre_market_change_percent: number | null;
+  post_market_price: number | null;
+  post_market_change_percent: number | null;
 }
 
 export interface WheelRecommendation {
@@ -173,6 +179,7 @@ export interface DiscoveryItem {
   change_percent: number;
   volume: number;
   market_cap: number;
+  has_pre_post_market_data: boolean;
 }
 
 // ── News types ────────────────────────────────────────────────────────────────
