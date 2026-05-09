@@ -15,7 +15,7 @@ use axum::{
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tokio::time::Duration;
+use tokio::sync::Semaphore;
 use tracing::{info, warn};
 
 use crate::AppState;
@@ -70,8 +70,8 @@ pub struct DiscoveryItem {
     pub change_percent: f64,
     pub volume: u64,
     pub market_cap: f64,
-    /// Whether this stock trades in pre-market and after-hours sessions.
-    pub has_pre_post_market_data: bool,
+    /// Average analyst rating string, e.g. "1.8 - Buy" or "3.2 - Hold".
+    pub analyst_rating: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -123,7 +123,7 @@ async fn prefetch_all(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     Json(serde_json::json!({ "status": "fetched", "screeners": fetched }))
 }
 
-/// Fetch all screeners sequentially with a small delay between each to avoid 429s.
+/// Fetch all screeners concurrently (with bounded concurrency to avoid 429s).
 /// Stores results in the discovery cache.
 async fn batch_fetch_all(state: &Arc<AppState>) -> usize {
     let session = state.yahoo.get().await;
@@ -135,30 +135,50 @@ async fn batch_fetch_all(state: &Arc<AppState>) -> usize {
         }
     };
 
-    let mut fetched = 0;
-    for screener_id in ALL_SCREENER_IDS {
-        // Skip if already cached
-        {
-            let cache = state.discovery_cache.read().await;
-            if cache.peek(screener_id).is_some() {
-                fetched += 1;
-                continue;
-            }
-        }
+    // Collect screener IDs that aren't already cached
+    let uncached: Vec<&str> = {
+        let cache = state.discovery_cache.read().await;
+        ALL_SCREENER_IDS
+            .iter()
+            .copied()
+            .filter(|id| cache.peek(id).is_none())
+            .collect()
+    };
 
-        match fetch_predefined_screener(&client, &crumb, screener_id).await {
-            Ok(items) => {
-                let mut cache = state.discovery_cache.write().await;
-                cache.insert(screener_id.to_string(), items);
-                fetched += 1;
-            }
-            Err(e) => {
-                warn!(screener_id = %screener_id, error = %e, "Failed to fetch discovery screener in batch");
-            }
-        }
+    let already_cached = ALL_SCREENER_IDS.len() - uncached.len();
 
-        // Small delay between requests to avoid rate limiting
-        tokio::time::sleep(Duration::from_millis(500)).await;
+    if uncached.is_empty() {
+        return ALL_SCREENER_IDS.len();
+    }
+
+    // Limit concurrency to 4 parallel requests to avoid rate limiting
+    let semaphore = Arc::new(Semaphore::new(4));
+    let tasks: Vec<_> = uncached
+        .into_iter()
+        .map(|screener_id| {
+            let client = client.clone();
+            let crumb = crumb.clone();
+            let sem = Arc::clone(&semaphore);
+            tokio::spawn(async move {
+                let _permit = sem.acquire().await.unwrap();
+                match fetch_predefined_screener(&client, &crumb, screener_id).await {
+                    Ok(items) => Some((screener_id.to_string(), items)),
+                    Err(e) => {
+                        warn!(screener_id = %screener_id, error = %e, "Failed to fetch discovery screener");
+                        None
+                    }
+                }
+            })
+        })
+        .collect();
+
+    let mut fetched = already_cached;
+    let mut cache = state.discovery_cache.write().await;
+    for task in tasks {
+        if let Ok(Some((id, items))) = task.await {
+            cache.insert(id, items);
+            fetched += 1;
+        }
     }
 
     info!(fetched = fetched, total = ALL_SCREENER_IDS.len(), "Discovery batch fetch complete");
@@ -192,7 +212,7 @@ struct YahooQuote {
     regular_market_change_percent: Option<f64>,
     regular_market_volume: Option<u64>,
     market_cap: Option<f64>,
-    has_pre_post_market_data: Option<bool>,
+    average_analyst_rating: Option<String>,
 }
 
 async fn fetch_predefined_screener(
@@ -241,7 +261,7 @@ async fn fetch_predefined_screener(
                 change_percent: q.regular_market_change_percent.unwrap_or(0.0),
                 volume: q.regular_market_volume.unwrap_or(0),
                 market_cap: q.market_cap.unwrap_or(0.0),
-                has_pre_post_market_data: q.has_pre_post_market_data.unwrap_or(false),
+                analyst_rating: q.average_analyst_rating,
             })
         })
         .collect();

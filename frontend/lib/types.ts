@@ -179,7 +179,7 @@ export interface DiscoveryItem {
   change_percent: number;
   volume: number;
   market_cap: number;
-  has_pre_post_market_data: boolean;
+  analyst_rating: string | null;
 }
 
 // ── News types ────────────────────────────────────────────────────────────────

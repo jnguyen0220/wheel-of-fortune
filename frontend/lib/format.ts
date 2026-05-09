@@ -1,4 +1,27 @@
-import type { EarningsCalendar } from "./types";
+import type { AnalystTrend, EarningsCalendar } from "./types";
+
+// ── Analyst consensus helper ─────────────────────────────────────────────────
+
+/**
+ * Compute analyst consensus from trend data.
+ * Returns null if no valid data.
+ */
+export function analystConsensus(
+  trends: AnalystTrend[] | undefined,
+): { label: string; bullish: number; hold: number; bearish: number; total: number; color: string; title: string } | null {
+  const current = trends?.find(t => t.period === "0m") ?? trends?.[0];
+  if (!current) return null;
+  const bullish = current.strong_buy + current.buy;
+  const bearish = current.sell + current.strong_sell;
+  const total = bullish + current.hold + bearish;
+  if (total === 0) return null;
+  const label = bullish > bearish + current.hold ? "Buy" : bearish > bullish ? "Sell" : "Hold";
+  const color = label === "Buy" ? "text-[#3fb950] bg-[#3fb95015] border-[#3fb95040]"
+    : label === "Sell" ? "text-[#f85149] bg-[#f8514915] border-[#f8514940]"
+    : "text-[#8b949e] bg-[#8b949e15] border-[#8b949e40]";
+  const title = `${current.strong_buy} Strong Buy · ${current.buy} Buy · ${current.hold} Hold · ${current.sell} Sell · ${current.strong_sell} Strong Sell`;
+  return { label, bullish, hold: current.hold, bearish, total, color, title };
+}
 
 // ── Health score color helpers ───────────────────────────────────────────────
 

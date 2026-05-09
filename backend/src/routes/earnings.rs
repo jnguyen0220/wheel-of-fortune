@@ -92,12 +92,7 @@ async fn get_earnings_history(
     State(state): State<Arc<AppState>>,
     Query(query): Query<TickersQuery>,
 ) -> impl IntoResponse {
-    let tickers: Vec<String> = query
-        .tickers
-        .split(',')
-        .map(|t| t.trim().to_uppercase())
-        .filter(|t| !t.is_empty())
-        .collect();
+    let tickers = parse_tickers(&query.tickers);
 
     let mut result: HashMap<String, Vec<EarningsResult>> = HashMap::new();
     let mut uncached: Vec<String> = Vec::new();

@@ -435,16 +435,6 @@ function PriceTab({ marketData }: { marketData?: StockMarketData }) {
         )}
         {/* Extended hours badge */}
         <div className="mt-2 flex items-center justify-center gap-1.5">
-          {marketData.has_pre_post_market_data ? (
-            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-[#388bfd1a] text-[#58a6ff] border border-[#388bfd33]">
-              <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 16 16"><circle cx="8" cy="8" r="3"/></svg>
-              Extended Hours
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-[#21262d] text-[#484f58] border border-[#30363d]">
-              Regular Hours Only
-            </span>
-          )}
           <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#21262d] text-[#484f58] border border-[#30363d]">
             {marketData.market_state}
           </span>

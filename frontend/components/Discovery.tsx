@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import type { DiscoveryItem, FinancialHealth } from "@/lib/types";
+import type { DiscoveryItem, FinancialHealth, AnalystTrend } from "@/lib/types";
 import { getDiscovery, getBatchData, prefetchDiscovery } from "@/lib/api";
 import { healthScoreColor } from "@/lib/format";
 import TickerLink from "./TickerLink";
@@ -88,6 +88,7 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [healthData, setHealthData] = useState<Record<string, FinancialHealth>>({});
+  const [analystData, setAnalystData] = useState<Record<string, AnalystTrend[]>>({});
   const [sortField, setSortField] = useState<SortField>("rank");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [page, setPage] = useState(0);
@@ -138,7 +139,10 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
     if (items.length === 0) return;
     const tickers = items.map((i) => i.ticker);
     getBatchData(tickers)
-      .then((batch) => setHealthData(batch.financials))
+      .then((batch) => {
+        setHealthData(batch.financials);
+        setAnalystData(batch.analyst_trends);
+      })
       .catch(() => { /* supplementary */ });
   }, [items]);
 
@@ -179,7 +183,7 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
   }
 
   return (
-    <div className="flex gap-4 h-[calc(100vh-180px)] min-h-[480px]">
+    <div className="flex gap-4 h-full min-h-[400px]">
       {/* Left panel: screener list */}
       <div className="w-[260px] shrink-0 rounded-lg border border-[#30363d] bg-[#0d1117] overflow-hidden flex flex-col shadow-sm">
         <div className="flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-[#161b22] to-[#0d1117] border-b border-[#30363d]">
@@ -335,7 +339,7 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                       </span>
                     </th>
                     <th className="px-3 py-2.5 text-right th">Change</th>
-                    <th className="px-3 py-2.5 text-center th">Ext Hrs</th>
+                    <th className="px-3 py-2.5 text-center th">Rating</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -413,14 +417,36 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                           </span>
                         </td>
                         <td className={`px-3 py-2.5 text-center ${rowBorder}`}>
-                          {item.has_pre_post_market_data ? (
-                            <span className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full bg-[#388bfd1a] text-[#58a6ff] border border-[#388bfd33]" title="Trades in pre-market & after-hours">
-                              <svg className="w-2 h-2" fill="currentColor" viewBox="0 0 16 16"><circle cx="8" cy="8" r="3"/></svg>
-                              Yes
-                            </span>
-                          ) : (
-                            <span className="text-[10px] text-[#484f58]">—</span>
-                          )}
+                          {(() => {
+                            // Use screener rating if available, else compute from analyst trends
+                            let label = "";
+                            let score = NaN;
+                            if (item.analyst_rating) {
+                              const parts = item.analyst_rating.split(" - ");
+                              score = parseFloat(parts[0]);
+                              label = parts[1] || "";
+                            } else {
+                              const trends = analystData[item.ticker];
+                              const cur = trends?.find(t => t.period === "0m");
+                              if (cur) {
+                                const total = cur.strong_buy + cur.buy + cur.hold + cur.sell + cur.strong_sell;
+                                if (total > 0) {
+                                  score = (cur.strong_buy * 1 + cur.buy * 2 + cur.hold * 3 + cur.sell * 4 + cur.strong_sell * 5) / total;
+                                  label = score <= 1.5 ? "Strong Buy" : score <= 2.5 ? "Buy" : score <= 3.5 ? "Hold" : score <= 4.5 ? "Underperform" : "Sell";
+                                }
+                              }
+                            }
+                            if (!label) return <span className="text-[10px] text-[#484f58]">—</span>;
+                            const color = score <= 1.5 ? "text-[#3fb950] bg-[#3fb95010]"
+                              : score <= 2.5 ? "text-[#58a6ff] bg-[#58a6ff10]"
+                              : score <= 3.5 ? "text-[#d29922] bg-[#d2992210]"
+                              : "text-[#f85149] bg-[#f8514910]";
+                            return (
+                              <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded ${color}`} title={`${score.toFixed(1)} - ${label}`}>
+                                {label}
+                              </span>
+                            );
+                          })()}
                         </td>
                       </tr>
                     );

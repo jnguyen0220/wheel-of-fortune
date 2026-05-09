@@ -49,7 +49,7 @@ async fn get_batch(
     let mut analyst_trends: HashMap<String, Vec<AnalystTrend>> = HashMap::new();
     let mut financials: HashMap<String, FinancialHealth> = HashMap::new();
 
-    // Check caches first for each data type.
+    // Check caches first for each data type (read locks only).
     let mut uncached_market: Vec<String> = Vec::new();
     let mut uncached_cal: Vec<String> = Vec::new();
     let mut uncached_hist: Vec<String> = Vec::new();
@@ -57,18 +57,33 @@ async fn get_batch(
     let mut uncached_fin: Vec<String> = Vec::new();
 
     {
-        let mut mc = state.market_data_cache.write().await;
-        let mut cc = state.earnings_calendar_cache.write().await;
-        let mut hc = state.earnings_history_cache.write().await;
-        let mut ac = state.analyst_trends_cache.write().await;
-        let mut fc = state.financials_cache.write().await;
-
+        let mc = state.market_data_cache.read().await;
         for ticker in &tickers {
-            if let Some(v) = mc.get(ticker) { market_data.insert(ticker.clone(), v); } else { uncached_market.push(ticker.clone()); }
-            if let Some(v) = cc.get(ticker) { earnings_calendar.insert(ticker.clone(), v); } else { uncached_cal.push(ticker.clone()); }
-            if let Some(v) = hc.get(ticker) { earnings_history.insert(ticker.clone(), v); } else { uncached_hist.push(ticker.clone()); }
-            if let Some(v) = ac.get(ticker) { analyst_trends.insert(ticker.clone(), v); } else { uncached_analyst.push(ticker.clone()); }
-            if let Some(v) = fc.get(ticker) { financials.insert(ticker.clone(), v); } else { uncached_fin.push(ticker.clone()); }
+            if let Some(v) = mc.peek(ticker) { market_data.insert(ticker.clone(), v); } else { uncached_market.push(ticker.clone()); }
+        }
+    }
+    {
+        let cc = state.earnings_calendar_cache.read().await;
+        for ticker in &tickers {
+            if let Some(v) = cc.peek(ticker) { earnings_calendar.insert(ticker.clone(), v); } else { uncached_cal.push(ticker.clone()); }
+        }
+    }
+    {
+        let hc = state.earnings_history_cache.read().await;
+        for ticker in &tickers {
+            if let Some(v) = hc.peek(ticker) { earnings_history.insert(ticker.clone(), v); } else { uncached_hist.push(ticker.clone()); }
+        }
+    }
+    {
+        let ac = state.analyst_trends_cache.read().await;
+        for ticker in &tickers {
+            if let Some(v) = ac.peek(ticker) { analyst_trends.insert(ticker.clone(), v); } else { uncached_analyst.push(ticker.clone()); }
+        }
+    }
+    {
+        let fc = state.financials_cache.read().await;
+        for ticker in &tickers {
+            if let Some(v) = fc.peek(ticker) { financials.insert(ticker.clone(), v); } else { uncached_fin.push(ticker.clone()); }
         }
     }
 

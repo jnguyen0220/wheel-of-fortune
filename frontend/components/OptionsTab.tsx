@@ -119,7 +119,7 @@ export default function OptionsTab({ chains, earningsCalendar }: Props) {
   }
 
   return (
-    <div className="flex flex-col gap-4 h-[calc(100vh-220px)] min-h-[400px]">
+    <div className="flex flex-col gap-4 h-full min-h-[400px]">
       {/* ── Ticker tabs + summary stats ── */}
       <section className="card-lg shrink-0">
         <div className="px-4 py-3 flex items-center justify-between flex-wrap gap-3">

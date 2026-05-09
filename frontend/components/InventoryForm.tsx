@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { StockHolding, StockHoldingInput, StockMarketData, EarningsCalendar, EarningsResult, AnalystTrend, FinancialHealth } from "@/lib/types";
 import { addHolding, deleteHolding, clearAllHoldings, updateHolding, getBatchData } from "@/lib/api";
-import { healthScoreColor } from "@/lib/format";
+import { healthScoreColor, analystConsensus } from "@/lib/format";
 import Discovery from "./Discovery";
 import TickerLink from "./TickerLink";
 
@@ -288,7 +288,7 @@ export default function InventoryForm({
 
 
   return (
-    <section className="card">
+    <section className={`card flex flex-col ${internalTab === "discovery" ? "h-full" : ""}`}>
       {/* Internal tabs */}
       <div className="flex items-center gap-3 p-4 border-b border-[#30363d]">
         <div className="tab-group">
@@ -321,7 +321,7 @@ export default function InventoryForm({
         </div>
       </div>
 
-      <div className="p-5">
+      <div className={`p-5 ${internalTab === "discovery" ? "flex-1 min-h-0 flex flex-col" : ""}`}>
         {/* Add Ticker tab content */}
         <div className={internalTab === "add" ? "" : "hidden"}>
         {/* Toolbar */}
@@ -768,18 +768,11 @@ export default function InventoryForm({
                       </td>
                       <td className={`px-3 py-2.5 text-right ${rowBorder}`}>
                         {(() => {
-                          const trends = analystTrends[h.ticker];
-                          const current = trends?.find(t => t.period === "0m") ?? trends?.[0];
-                          if (!current) return <span className="text-[#484f58] text-[10px]">—</span>;
-                          const bullish = current.strong_buy + current.buy;
-                          const bearish = current.sell + current.strong_sell;
-                          const total = bullish + current.hold + bearish;
-                          if (total === 0) return <span className="text-[#484f58] text-[10px]">—</span>;
-                          const label = bullish > bearish + current.hold ? "Buy" : bearish > bullish ? "Sell" : "Hold";
-                          const color = label === "Buy" ? "text-[#3fb950] bg-[#3fb95015] border-[#3fb95040]" : label === "Sell" ? "text-[#f85149] bg-[#f8514915] border-[#f8514940]" : "text-[#8b949e] bg-[#8b949e15] border-[#8b949e40]";
+                          const c = analystConsensus(analystTrends[h.ticker]);
+                          if (!c) return <span className="text-[#484f58] text-[10px]">—</span>;
                           return (
-                            <span className={`inline-flex items-center text-[10px] font-medium ${color} border px-1.5 py-0.5 rounded`} title={`${current.strong_buy} Strong Buy · ${current.buy} Buy · ${current.hold} Hold · ${current.sell} Sell · ${current.strong_sell} Strong Sell`}>
-                              {label} ({bullish}B {current.hold}H {bearish}S)
+                            <span className={`inline-flex items-center text-[10px] font-medium ${c.color} border px-1.5 py-0.5 rounded`} title={c.title}>
+                              {c.label} ({c.bullish}B {c.hold}H {c.bearish}S)
                             </span>
                           );
                         })()}
@@ -806,7 +799,7 @@ export default function InventoryForm({
         {/* End Add Ticker tab */}
 
         {/* Discovery tab content */}
-        <div className={internalTab === "discovery" ? "" : "hidden"}>
+        <div className={internalTab === "discovery" ? "flex-1 min-h-0" : "hidden"}>
           {internalTab === "discovery" && <Discovery
             existingTickers={holdings.map(h => h.ticker)}
             onAddTicker={async (ticker) => {

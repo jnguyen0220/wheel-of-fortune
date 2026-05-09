@@ -199,7 +199,7 @@ export default function WheelAdvisor() {
 
   return (
     <HealthPopupProvider>
-    <div className="min-h-screen bg-[#0d1117]">
+    <div className="h-screen flex flex-col bg-[#0d1117] overflow-hidden">
       {/* Header */}
       <header className="bg-[#161b22] border-b border-[#30363d] sticky top-0 z-20 shadow-sm shadow-black/20">
         <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
@@ -214,26 +214,18 @@ export default function WheelAdvisor() {
               <p className="text-[10px] text-[#8b949e]">Options Income Strategy</p>
             </div>
           </div>
-          <span className="hidden sm:inline-flex items-center gap-1.5 text-[9px] font-medium text-[#8b949e] bg-[#0d1117] border border-[#21262d] px-2.5 py-1 rounded-full">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#3fb950] animate-pulse" />
-            Educational Use Only
+          <span className="hidden sm:inline-flex items-center gap-1.5 text-[9px] font-medium text-[#d29922] bg-[#d299220a] border border-[#d2992230] px-2.5 py-1 rounded-full">
+            <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+            </svg>
+            Not financial advice. For educational and informational purposes only. <button onClick={() => setDisclaimerOpen(true)} className="underline underline-offset-2 hover:text-[#e3b341] transition-colors cursor-pointer">Read full disclaimer</button>
           </span>
         </div>
       </header>
 
-      {/* Disclaimer banner */}
-      <div className="bg-[#d299220a] border-b border-[#d2992220]">
-        <p className="max-w-7xl mx-auto px-6 py-1.5 text-[10px] text-[#d29922] text-center leading-relaxed">
-          <svg className="w-3 h-3 inline-block mr-1 -mt-px" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
-          </svg>
-          Not financial advice. This tool is for educational and informational purposes only. <button onClick={() => setDisclaimerOpen(true)} className="underline underline-offset-2 hover:text-[#e3b341] transition-colors cursor-pointer">Read full disclaimer</button>.
-        </p>
-      </div>
-
-      <div className="max-w-7xl mx-auto px-6 pt-4">
+      <div className="flex-1 min-h-0 flex flex-col max-w-7xl w-full mx-auto px-6 pt-4">
         {/* Tab nav */}
-        <div className="flex items-center gap-3 mb-4">
+        <div className="flex items-center gap-3 mb-4 shrink-0">
           <div className="tab-group">
             {(
               [
@@ -269,8 +261,8 @@ export default function WheelAdvisor() {
         </div>
 
         {/* Tab content */}
-        <div className="pb-12">
-          <div className={activeTab === "inventory" ? "" : "hidden"}>
+        <div className="flex-1 min-h-0 pb-2">
+          <div className={`${activeTab === "inventory" ? "flex flex-col" : "hidden"} h-full min-h-0`}>
             {error && (
               <p className="mb-4 text-[#f85149] text-xs font-medium bg-[#f8514915] px-3 py-1.5 rounded border border-[#f8514930]">{error}</p>
             )}
@@ -285,9 +277,9 @@ export default function WheelAdvisor() {
             />
           </div>
 
-          <div className={activeTab === "options" ? "" : "hidden"}>
+          <div className={`${activeTab === "options" ? "flex flex-col" : "hidden"} h-full min-h-0`}>
             {/* Sub-tab navigation */}
-            <div className="flex items-center gap-3 mb-4">
+            <div className="flex items-center gap-3 mb-4 shrink-0">
               <div className="tab-group">
                 {([
                   { key: "chains" as const, label: "Option Chains" },
@@ -322,13 +314,13 @@ export default function WheelAdvisor() {
             </div>
 
             {/* Sub-tab content */}
-            <div className={optionsSubTab === "chains" ? "" : "hidden"}>
+            <div className={`${optionsSubTab === "chains" ? "flex flex-col" : "hidden"} flex-1 min-h-0`}>
               <OptionsTab
                 chains={optionsChains}
                 earningsCalendar={earningsCalendar}
               />
             </div>
-            <div className={optionsSubTab === "recommendations" ? "" : "hidden"}>
+            <div className={`${optionsSubTab === "recommendations" ? "flex flex-col" : "hidden"} flex-1 min-h-0`}>
               <Recommendations
                 recommendations={recommendations}
                 earningsCalendar={earningsCalendar}

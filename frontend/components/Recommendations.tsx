@@ -4,7 +4,7 @@ import React, { useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import type { WheelRecommendation, EarningsCalendar, EarningsResult, AnalystTrend, FinancialHealth } from "@/lib/types";
 import { getFinancialHealth } from "@/lib/api";
-import { healthScoreColor, earningsDotInfo, nextEarningsDays, earningsDaysColor, earningsDaysLabel } from "@/lib/format";
+import { healthScoreColor, earningsDotInfo, nextEarningsDays, earningsDaysColor, earningsDaysLabel, analystConsensus } from "@/lib/format";
 import type { StrategyFilters } from "./OptionsTab";
 import { DEFAULT_FILTERS } from "./OptionsTab";
 
@@ -183,18 +183,11 @@ function TradesTable({ ccTrades, cspTrades, earningsCalendar, earningsHistory, a
             </div>
           )}
           {(() => {
-            const trends = analystTrends?.[activeTicker];
-            const current = trends?.find(t => t.period === "0m") ?? trends?.[0];
-            if (!current) return null;
-            const bullish = current.strong_buy + current.buy;
-            const bearish = current.sell + current.strong_sell;
-            const total = bullish + current.hold + bearish;
-            if (total === 0) return null;
-            const label = bullish > bearish + current.hold ? "Buy" : bearish > bullish ? "Sell" : "Hold";
-            const color = label === "Buy" ? "text-[#3fb950] bg-[#3fb95010] border-[#3fb95040]" : label === "Sell" ? "text-[#f85149] bg-[#f8514910] border-[#f8514940]" : "text-[#8b949e] bg-[#8b949e10] border-[#8b949e40]";
+            const c = analystConsensus(analystTrends?.[activeTicker]);
+            if (!c) return null;
             return (
-              <div className={`flex items-center gap-1.5 h-[30px] px-2.5 rounded-md border ${color}`} title={`${current.strong_buy} Strong Buy · ${current.buy} Buy · ${current.hold} Hold · ${current.sell} Sell · ${current.strong_sell} Strong Sell`}>
-                <span className="text-[10px] font-medium">{label} ({bullish}B {current.hold}H {bearish}S)</span>
+              <div className={`flex items-center gap-1.5 h-[30px] px-2.5 rounded-md border ${c.color}`} title={c.title}>
+                <span className="text-[10px] font-medium">{c.label} ({c.bullish}B {c.hold}H {c.bearish}S)</span>
               </div>
             );
           })()}

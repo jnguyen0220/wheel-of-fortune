@@ -8,11 +8,12 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use serde::Deserialize;
 use std::sync::Arc;
 use tracing::warn;
 
 use crate::AppState;
+
+use super::common::{TickersQuery, parse_tickers};
 
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
@@ -20,21 +21,11 @@ pub fn router(state: Arc<AppState>) -> Router {
         .with_state(state)
 }
 
-#[derive(Deserialize)]
-struct OptionsQuery {
-    tickers: String,
-}
-
 async fn get_options(
     State(state): State<Arc<AppState>>,
-    Query(query): Query<OptionsQuery>,
+    Query(query): Query<TickersQuery>,
 ) -> impl IntoResponse {
-    let tickers: Vec<String> = query
-        .tickers
-        .split(',')
-        .map(|t| t.trim().to_uppercase())
-        .filter(|t| !t.is_empty())
-        .collect();
+    let tickers = parse_tickers(&query.tickers);
 
     match state.options_provider.fetch_options_chains(&tickers).await {
         Ok(chains) => Json(chains),
