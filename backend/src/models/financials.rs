@@ -10,6 +10,9 @@ pub struct FinancialHealth {
     /// Sector classification (e.g. "Technology", "Healthcare").
     #[serde(default)]
     pub sector: Option<String>,
+    /// Company business description from Yahoo Finance assetProfile.
+    #[serde(default)]
+    pub description: Option<String>,
 
     // ── Profitability ─────────────────────────────────────────────────────────
     /// Trailing-twelve-month revenue (USD).

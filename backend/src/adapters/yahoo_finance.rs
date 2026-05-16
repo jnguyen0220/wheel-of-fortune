@@ -820,6 +820,7 @@ struct QuoteSummaryResult {
 #[serde(rename_all = "camelCase")]
 struct YahooAssetProfile {
     sector: Option<String>,
+    long_business_summary: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1119,7 +1120,8 @@ pub async fn fetch_financial_health(
     let mut health = crate::models::FinancialHealth {
         ticker: ticker.to_uppercase(),
         name: qt.and_then(|q| q.long_name.or(q.short_name)),
-        sector: ap.and_then(|a| a.sector),
+        sector: ap.as_ref().and_then(|a| a.sector.clone()),
+        description: ap.and_then(|a| a.long_business_summary),
         revenue: fd.as_ref().and_then(|f| f.total_revenue.as_ref()).and_then(|v| v.raw),
         revenue_growth: fd.as_ref().and_then(|f| f.revenue_growth.as_ref()).and_then(|v| v.raw),
         net_income: fd.as_ref().and_then(|f| f.net_income_to_common.as_ref()).and_then(|v| v.raw),

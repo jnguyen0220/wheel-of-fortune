@@ -239,46 +239,85 @@ export function HealthPopupProvider({ children }: { children: React.ReactNode })
 // ── Tab Components ───────────────────────────────────────────────────────────
 
 function SummaryTab({ health }: { health?: FinancialHealth }) {
+  const [subTab, setSubTab] = useState<"about" | "health">("health");
   if (!health) return <EmptyState>No summary data available.</EmptyState>;
-  if (health.strengths.length === 0 && health.concerns.length === 0) {
-    return <EmptyState>No strengths or concerns identified.</EmptyState>;
-  }
+
+  const hasAbout = !!health.description;
+  const hasStrengths = health.strengths.length > 0;
+  const hasConcerns = health.concerns.length > 0;
+  const hasHealth = hasStrengths || hasConcerns;
+
+  const subTabs = [
+    ...(hasHealth ? [{ key: "health" as const, label: "Health" }] : []),
+    ...(hasAbout ? [{ key: "about" as const, label: "About" }] : []),
+  ];
+
+  if (subTabs.length === 0) return <EmptyState>No summary data available.</EmptyState>;
+
+  const activeSubTab = subTabs.find((t) => t.key === subTab) ? subTab : subTabs[0].key;
+
   return (
     <div className="space-y-4">
-      {health.strengths.length > 0 && (
-        <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-4">
-          <h4 className="text-[10px] font-semibold text-[#3fb950] uppercase tracking-wider mb-3 flex items-center gap-1.5">
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-            </svg>
-            Strengths
-          </h4>
-          <ul className="space-y-2">
-            {health.strengths.map((s, i) => (
-              <li key={i} className="text-xs text-[#c9d1d9] flex items-start gap-2.5 leading-relaxed">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#3fb950] mt-1.5 shrink-0" />
-                {s}
-              </li>
-            ))}
-          </ul>
+      <div className="flex gap-1 rounded-md bg-[#0d1117] p-1 border border-[#21262d]">
+        {subTabs.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setSubTab(t.key)}
+            className={`flex-1 px-3 py-1.5 text-[11px] font-medium rounded transition-all whitespace-nowrap inline-flex items-center justify-center gap-1.5 ${
+              activeSubTab === t.key
+                ? "bg-[#30363d] text-[#f0f6fc] shadow-sm"
+                : "text-[#8b949e] hover:text-[#c9d1d9]"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {activeSubTab === "about" && health.description && (
+        <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-4 max-h-[280px] overflow-y-auto">
+          <p className="text-xs text-[#c9d1d9] leading-relaxed">{health.description}</p>
         </div>
       )}
-      {health.concerns.length > 0 && (
-        <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-4">
-          <h4 className="text-[10px] font-semibold text-[#d29922] uppercase tracking-wider mb-3 flex items-center gap-1.5">
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-            </svg>
-            Concerns
-          </h4>
-          <ul className="space-y-2">
-            {health.concerns.map((c, i) => (
-              <li key={i} className="text-xs text-[#c9d1d9] flex items-start gap-2.5 leading-relaxed">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#d29922] mt-1.5 shrink-0" />
-                {c}
-              </li>
-            ))}
-          </ul>
+
+      {activeSubTab === "health" && (
+        <div className="space-y-4">
+          {hasStrengths && (
+            <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-4">
+              <h4 className="text-[10px] font-semibold text-[#3fb950] uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                </svg>
+                Strengths
+              </h4>
+              <ul className="space-y-2">
+                {health.strengths.map((s, i) => (
+                  <li key={i} className="text-xs text-[#c9d1d9] flex items-start gap-2.5 leading-relaxed">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#3fb950] mt-1.5 shrink-0" />
+                    {s}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {hasConcerns && (
+            <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-4">
+              <h4 className="text-[10px] font-semibold text-[#d29922] uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                </svg>
+                Concerns
+              </h4>
+              <ul className="space-y-2">
+                {health.concerns.map((c, i) => (
+                  <li key={i} className="text-xs text-[#c9d1d9] flex items-start gap-2.5 leading-relaxed">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#d29922] mt-1.5 shrink-0" />
+                    {c}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
     </div>

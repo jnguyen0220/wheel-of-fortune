@@ -6,7 +6,7 @@ import { getDiscovery, getBatchData, prefetchDiscovery } from "@/lib/api";
 import { healthScoreColor } from "@/lib/format";
 import TickerLink from "./TickerLink";
 
-type SortField = "rank" | "ticker" | "price" | "health";
+type SortField = "rank" | "ticker" | "price" | "health" | "rating";
 type SortDir = "asc" | "desc";
 
 interface DiscoveryProps {
@@ -146,6 +146,22 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
       .catch(() => { /* supplementary */ });
   }, [items]);
 
+  function getRatingScore(item: DiscoveryItem): number {
+    if (item.analyst_rating) {
+      const score = parseFloat(item.analyst_rating.split(" - ")[0]);
+      return isNaN(score) ? Infinity : score;
+    }
+    const trends = analystData[item.ticker];
+    const cur = trends?.find(t => t.period === "0m");
+    if (cur) {
+      const total = cur.strong_buy + cur.buy + cur.hold + cur.sell + cur.strong_sell;
+      if (total > 0) {
+        return (cur.strong_buy * 1 + cur.buy * 2 + cur.hold * 3 + cur.sell * 4 + cur.strong_sell * 5) / total;
+      }
+    }
+    return Infinity;
+  }
+
   const sortedItems = [...items].sort((a, b) => {
     let cmp = 0;
     switch (sortField) {
@@ -160,6 +176,9 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
         break;
       case "health":
         cmp = (healthData[a.ticker]?.health_score ?? -1) - (healthData[b.ticker]?.health_score ?? -1);
+        break;
+      case "rating":
+        cmp = getRatingScore(a) - getRatingScore(b);
         break;
     }
     return sortDir === "asc" ? cmp : -cmp;
@@ -339,7 +358,15 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                       </span>
                     </th>
                     <th className="px-3 py-2.5 text-right th">Change</th>
-                    <th className="px-3 py-2.5 text-center th">Rating</th>
+                    <th
+                      className="px-3 py-2.5 text-center th cursor-pointer select-none hover:text-[#c9d1d9] transition-colors"
+                      onClick={() => toggleSort("rating")}
+                    >
+                      <span className="inline-flex items-center justify-center gap-0.5">
+                        Rating
+                        {sortField === "rating" && <span className="text-[#58a6ff] text-[8px]">{sortDir === "asc" ? "▲" : "▼"}</span>}
+                      </span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
