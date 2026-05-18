@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useCallback, useRef } from "react";
+import React, { createContext, useContext, useState, useCallback, useRef } from "react";
 import type {
   FinancialHealth,
   StockMarketData,
@@ -238,98 +238,65 @@ export function HealthPopupProvider({ children }: { children: React.ReactNode })
 
 // ── Tab Components ───────────────────────────────────────────────────────────
 
-function SummaryTab({ health }: { health?: FinancialHealth }) {
-  const [subTab, setSubTab] = useState<"about" | "health">("health");
+export function SummaryTab({ health }: { health?: FinancialHealth }) {
   if (!health) return <EmptyState>No summary data available.</EmptyState>;
 
   const hasAbout = !!health.description;
   const hasStrengths = health.strengths.length > 0;
   const hasConcerns = health.concerns.length > 0;
-  const hasHealth = hasStrengths || hasConcerns;
 
-  const subTabs = [
-    ...(hasHealth ? [{ key: "health" as const, label: "Health" }] : []),
-    ...(hasAbout ? [{ key: "about" as const, label: "About" }] : []),
-  ];
-
-  if (subTabs.length === 0) return <EmptyState>No summary data available.</EmptyState>;
-
-  const activeSubTab = subTabs.find((t) => t.key === subTab) ? subTab : subTabs[0].key;
+  if (!hasAbout && !hasStrengths && !hasConcerns) return <EmptyState>No summary data available.</EmptyState>;
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-1 rounded-md bg-[#0d1117] p-1 border border-[#21262d]">
-        {subTabs.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setSubTab(t.key)}
-            className={`flex-1 px-3 py-1.5 text-[11px] font-medium rounded transition-all whitespace-nowrap inline-flex items-center justify-center gap-1.5 ${
-              activeSubTab === t.key
-                ? "bg-[#30363d] text-[#f0f6fc] shadow-sm"
-                : "text-[#8b949e] hover:text-[#c9d1d9]"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {activeSubTab === "about" && health.description && (
+      {hasAbout && (
         <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-4 max-h-[280px] overflow-y-auto">
+          <h4 className="text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider mb-3 flex items-center gap-1.5">
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
+            </svg>
+            About
+          </h4>
           <p className="text-xs text-[#c9d1d9] leading-relaxed">{health.description}</p>
         </div>
       )}
 
-      {activeSubTab === "health" && (
-        <div className="space-y-4">
-          {hasStrengths && (
-            <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-4">
-              <h4 className="text-[10px] font-semibold text-[#3fb950] uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                </svg>
-                Strengths
-              </h4>
-              <ul className="space-y-2">
-                {health.strengths.map((s, i) => (
-                  <li key={i} className="text-xs text-[#c9d1d9] flex items-start gap-2.5 leading-relaxed">
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#3fb950] mt-1.5 shrink-0" />
-                    {s}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {hasConcerns && (
-            <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-4">
-              <h4 className="text-[10px] font-semibold text-[#d29922] uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-                </svg>
-                Concerns
-              </h4>
-              <ul className="space-y-2">
-                {health.concerns.map((c, i) => (
-                  <li key={i} className="text-xs text-[#c9d1d9] flex items-start gap-2.5 leading-relaxed">
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#d29922] mt-1.5 shrink-0" />
-                    {c}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+      {hasStrengths && (
+        <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-4">
+          <h4 className="text-[10px] font-semibold text-[#3fb950] uppercase tracking-wider mb-3 flex items-center gap-1.5">
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+            </svg>
+            Strengths
+          </h4>
+          <ul className="space-y-2">
+            {health.strengths.map((s, i) => (
+              <li key={i} className="text-xs text-[#c9d1d9] flex items-start gap-2.5 leading-relaxed">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#3fb950] mt-1.5 shrink-0" />
+                {s}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
-    </div>
-  );
-}
-
-function MetricRow({ label, value, fmt }: { label: string; value: number | null | undefined; fmt?: (v: number) => string }) {
-  const formatted = value != null ? (fmt ? fmt(value) : value.toLocaleString()) : "—";
-  return (
-    <div className="flex justify-between items-center py-2 border-b border-[#21262d]/60 last:border-0">
-      <span className="text-[11px] text-[#8b949e]">{label}</span>
-      <span className="text-[11px] text-[#f0f6fc] font-medium tabular-nums">{formatted}</span>
+      {hasConcerns && (
+        <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-4">
+          <h4 className="text-[10px] font-semibold text-[#d29922] uppercase tracking-wider mb-3 flex items-center gap-1.5">
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+            </svg>
+            Concerns
+          </h4>
+          <ul className="space-y-2">
+            {health.concerns.map((c, i) => (
+              <li key={i} className="text-xs text-[#c9d1d9] flex items-start gap-2.5 leading-relaxed">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#d29922] mt-1.5 shrink-0" />
+                {c}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
@@ -351,11 +318,8 @@ function EmptyState({ children }: { children: React.ReactNode }) {
   );
 }
 
-type FinancialSubTab = "income" | "margins" | "balance" | "returns" | "valuation";
-
-function FinancialsTab({ health }: { health?: FinancialHealth }) {
-  const [subTab, setSubTab] = useState<FinancialSubTab>("income");
-
+export function FinancialsTab({ health }: { health?: FinancialHealth }) {
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   if (!health) return <EmptyState>No financial data available.</EmptyState>;
   const fmtPct = (v: number) => `${(v * 100).toFixed(1)}%`;
   const fmtM = (v: number) => {
@@ -367,78 +331,107 @@ function FinancialsTab({ health }: { health?: FinancialHealth }) {
   };
   const fmtR = (v: number) => `${v.toFixed(2)}`;
 
-  const subTabs: { key: FinancialSubTab; label: string; icon: React.ReactNode }[] = [
-    { key: "income", label: "Income", icon: <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg> },
-    { key: "margins", label: "Margins", icon: <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0 0 20.25 18V6A2.25 2.25 0 0 0 18 3.75H6A2.25 2.25 0 0 0 3.75 6v12A2.25 2.25 0 0 0 6 20.25Z" /></svg> },
-    { key: "balance", label: "Balance Sheet", icon: <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 3v17.25m0 0c-1.472 0-2.882.265-4.185.75M12 20.25c1.472 0 2.882.265 4.185.75M18.75 4.97A48.416 48.416 0 0 0 12 4.5c-2.291 0-4.545.16-6.75.47m13.5 0c1.01.143 2.01.317 3 .52m-3-.52 2.62 10.726c.122.499-.106 1.028-.589 1.202a5.988 5.988 0 0 1-2.031.352 5.988 5.988 0 0 1-2.031-.352c-.483-.174-.711-.703-.59-1.202L18.75 4.971Zm-16.5.52c.99-.203 1.99-.377 3-.52m0 0 2.62 10.726c.122.499-.106 1.028-.589 1.202a5.989 5.989 0 0 1-2.031.352 5.989 5.989 0 0 1-2.031-.352c-.483-.174-.711-.703-.59-1.202L5.25 4.971Z" /></svg> },
-    { key: "returns", label: "Returns", icon: <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18 9 11.25l4.306 4.306a11.95 11.95 0 0 1 5.814-5.518l2.74-1.22m0 0-5.94-2.281m5.94 2.28-2.28 5.941" /></svg> },
-    { key: "valuation", label: "Valuation", icon: <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9.568 3H5.25A2.25 2.25 0 0 0 3 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 0 0 5.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 0 0 9.568 3Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M6 6h.008v.008H6V6Z" /></svg> },
+  // Color logic per metric: green = healthy, orange = caution, red = warning, default = neutral
+  const clrPositive = (v: number) => v > 0 ? "text-[#3fb950]" : v < 0 ? "text-[#f85149]" : "text-[#f0f6fc]";
+  const clrGrowth = (v: number) => v > 0.05 ? "text-[#3fb950]" : v > 0 ? "text-[#f0f6fc]" : v > -0.05 ? "text-[#d29922]" : "text-[#f85149]";
+  const clrMargin = (v: number) => v > 0.15 ? "text-[#3fb950]" : v > 0 ? "text-[#f0f6fc]" : "text-[#f85149]";
+  const clrDE = (v: number) => v < 1 ? "text-[#3fb950]" : v < 2 ? "text-[#d29922]" : "text-[#f85149]";
+  const clrCR = (v: number) => v >= 1.5 ? "text-[#3fb950]" : v >= 1 ? "text-[#f0f6fc]" : "text-[#f85149]";
+  const clrPE = (v: number) => v < 0 ? "text-[#d29922]" : v <= 25 ? "text-[#3fb950]" : v <= 40 ? "text-[#f0f6fc]" : "text-[#d29922]";
+  const clrPB = (v: number) => v < 0 ? "text-[#f85149]" : v <= 3 ? "text-[#3fb950]" : v <= 5 ? "text-[#f0f6fc]" : "text-[#d29922]";
+  const clrPEG = (v: number) => v < 0 ? "text-[#d29922]" : v <= 1.5 ? "text-[#3fb950]" : v <= 2 ? "text-[#f0f6fc]" : "text-[#d29922]";
+  const clrNeutral = () => "text-[#f0f6fc]";
+
+  const sections: { label: string; icon: React.ReactNode; rows: { label: string; value: number | null | undefined; fmt: (v: number) => string; color: (v: number) => string }[] }[] = [
+    {
+      label: "Income",
+      icon: <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>,
+      rows: [
+        { label: "Revenue", value: health.revenue, fmt: fmtM, color: clrNeutral },
+        { label: "Revenue Growth", value: health.revenue_growth, fmt: fmtPct, color: clrGrowth },
+        { label: "Net Income", value: health.net_income, fmt: fmtM, color: clrPositive },
+        { label: "EPS", value: health.earnings_per_share, fmt: fmtR, color: clrPositive },
+      ],
+    },
+    {
+      label: "Margins",
+      icon: <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0 0 20.25 18V6A2.25 2.25 0 0 0 18 3.75H6A2.25 2.25 0 0 0 3.75 6v12A2.25 2.25 0 0 0 6 20.25Z" /></svg>,
+      rows: [
+        { label: "Profit Margin", value: health.profit_margin, fmt: fmtPct, color: clrMargin },
+        { label: "Operating Margin", value: health.operating_margin, fmt: fmtPct, color: clrMargin },
+      ],
+    },
+    {
+      label: "Balance Sheet",
+      icon: <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 3v17.25m0 0c-1.472 0-2.882.265-4.185.75M12 20.25c1.472 0 2.882.265 4.185.75M18.75 4.97A48.416 48.416 0 0 0 12 4.5c-2.291 0-4.545.16-6.75.47m13.5 0c1.01.143 2.01.317 3 .52m-3-.52 2.62 10.726c.122.499-.106 1.028-.589 1.202a5.988 5.988 0 0 1-2.031.352 5.988 5.988 0 0 1-2.031-.352c-.483-.174-.711-.703-.59-1.202L18.75 4.971Zm-16.5.52c.99-.203 1.99-.377 3-.52m0 0 2.62 10.726c.122.499-.106 1.028-.589 1.202a5.989 5.989 0 0 1-2.031.352 5.989 5.989 0 0 1-2.031-.352c-.483-.174-.711-.703-.59-1.202L5.25 4.971Z" /></svg>,
+      rows: [
+        { label: "Total Cash", value: health.total_cash, fmt: fmtM, color: clrNeutral },
+        { label: "Total Debt", value: health.total_debt, fmt: fmtM, color: clrNeutral },
+        { label: "Debt/Equity", value: health.debt_to_equity, fmt: fmtR, color: clrDE },
+        { label: "Current Ratio", value: health.current_ratio, fmt: fmtR, color: clrCR },
+      ],
+    },
+    {
+      label: "Returns",
+      icon: <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18 9 11.25l4.306 4.306a11.95 11.95 0 0 1 5.814-5.518l2.74-1.22m0 0-5.94-2.281m5.94 2.28-2.28 5.941" /></svg>,
+      rows: [
+        { label: "ROE", value: health.return_on_equity, fmt: fmtPct, color: clrGrowth },
+        { label: "ROA", value: health.return_on_assets, fmt: fmtPct, color: clrGrowth },
+        { label: "Free Cash Flow", value: health.free_cash_flow, fmt: fmtM, color: clrPositive },
+        { label: "Op. Cash Flow", value: health.operating_cash_flow, fmt: fmtM, color: clrPositive },
+      ],
+    },
+    {
+      label: "Valuation",
+      icon: <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9.568 3H5.25A2.25 2.25 0 0 0 3 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 0 0 5.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 0 0 9.568 3Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M6 6h.008v.008H6V6Z" /></svg>,
+      rows: [
+        { label: "Trailing P/E", value: health.trailing_pe, fmt: fmtR, color: clrPE },
+        { label: "Forward P/E", value: health.forward_pe, fmt: fmtR, color: clrPE },
+        { label: "Price/Book", value: health.price_to_book, fmt: fmtR, color: clrPB },
+        { label: "PEG Ratio", value: health.peg_ratio, fmt: fmtR, color: clrPEG },
+      ],
+    },
   ];
 
-  return (
-    <div className="space-y-4">
-      <div className="flex gap-1 bg-[#161b22] border border-[#21262d] rounded-lg p-1">
-        {subTabs.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setSubTab(tab.key)}
-            className={`flex-1 px-2 py-1.5 text-[10px] font-medium rounded transition-all whitespace-nowrap inline-flex items-center justify-center gap-1 ${
-              subTab === tab.key
-                ? "bg-[#30363d] text-[#f0f6fc] shadow-sm"
-                : "text-[#8b949e] hover:text-[#c9d1d9]"
-            }`}
-          >
-            {tab.icon}
-            {tab.label}
-          </button>
-        ))}
-      </div>
+  const toggle = (label: string) => setCollapsed((prev) => ({ ...prev, [label]: !prev[label] }));
 
-      <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-4">
-        {subTab === "income" && (
-          <>
-            <MetricRow label="Revenue" value={health.revenue} fmt={fmtM} />
-            <MetricRow label="Revenue Growth" value={health.revenue_growth} fmt={fmtPct} />
-            <MetricRow label="Net Income" value={health.net_income} fmt={fmtM} />
-            <MetricRow label="EPS" value={health.earnings_per_share} fmt={fmtR} />
-          </>
-        )}
-        {subTab === "margins" && (
-          <>
-            <MetricRow label="Profit Margin" value={health.profit_margin} fmt={fmtPct} />
-            <MetricRow label="Operating Margin" value={health.operating_margin} fmt={fmtPct} />
-          </>
-        )}
-        {subTab === "balance" && (
-          <>
-            <MetricRow label="Total Cash" value={health.total_cash} fmt={fmtM} />
-            <MetricRow label="Total Debt" value={health.total_debt} fmt={fmtM} />
-            <MetricRow label="Debt/Equity" value={health.debt_to_equity} fmt={fmtR} />
-            <MetricRow label="Current Ratio" value={health.current_ratio} fmt={fmtR} />
-          </>
-        )}
-        {subTab === "returns" && (
-          <>
-            <MetricRow label="ROE" value={health.return_on_equity} fmt={fmtPct} />
-            <MetricRow label="ROA" value={health.return_on_assets} fmt={fmtPct} />
-            <MetricRow label="Free Cash Flow" value={health.free_cash_flow} fmt={fmtM} />
-            <MetricRow label="Op. Cash Flow" value={health.operating_cash_flow} fmt={fmtM} />
-          </>
-        )}
-        {subTab === "valuation" && (
-          <>
-            <MetricRow label="Trailing P/E" value={health.trailing_pe} fmt={fmtR} />
-            <MetricRow label="Forward P/E" value={health.forward_pe} fmt={fmtR} />
-            <MetricRow label="Price/Book" value={health.price_to_book} fmt={fmtR} />
-            <MetricRow label="PEG Ratio" value={health.peg_ratio} fmt={fmtR} />
-          </>
-        )}
-      </div>
+  return (
+    <div className="bg-[#161b22] border border-[#21262d] rounded-lg overflow-hidden">
+      <table className="w-full text-xs">
+        <tbody>
+          {sections.map((section) => (
+            <React.Fragment key={section.label}>
+              <tr
+                className="cursor-pointer select-none bg-[#0d1117]/40 border-t border-[#21262d] first:border-t-0 hover:bg-[#0d1117]/60 transition-colors"
+                onClick={() => toggle(section.label)}
+              >
+                <td colSpan={2} className="px-4 pt-2.5 pb-2 text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">
+                  <span className="inline-flex items-center gap-1.5">
+                    <svg className={`w-3 h-3 text-[#484f58] transition-transform ${collapsed[section.label] ? "-rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                    </svg>
+                    {section.icon}
+                    {section.label}
+                  </span>
+                </td>
+              </tr>
+              {!collapsed[section.label] && section.rows.map((row) => (
+                <tr key={row.label} className="border-t border-[#21262d]/60">
+                  <td className="px-4 py-2 text-[11px] text-[#8b949e]">{row.label}</td>
+                  <td className={`px-4 py-2 text-[11px] font-medium tabular-nums text-right ${row.value != null ? row.color(row.value) : "text-[#484f58]"}`}>
+                    {row.value != null ? row.fmt(row.value) : "—"}
+                  </td>
+                </tr>
+              ))}
+            </React.Fragment>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
 
-function PriceTab({ marketData }: { marketData?: StockMarketData }) {
+export function PriceTab({ marketData }: { marketData?: StockMarketData }) {
   if (!marketData) return <EmptyState>No price data available.</EmptyState>;
   const fmtPrice = (v: number) => `$${v.toFixed(2)}`;
   const fmtPct = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
@@ -516,7 +509,7 @@ function PriceTab({ marketData }: { marketData?: StockMarketData }) {
   );
 }
 
-function EarningsTab({ calendar, history }: { calendar?: EarningsCalendar[]; history?: EarningsResult[] }) {
+export function EarningsTab({ calendar, history }: { calendar?: EarningsCalendar[]; history?: EarningsResult[] }) {
   const hasCalendar = calendar && calendar.length > 0;
   const hasHistory = history && history.length > 0;
   const sorted = hasHistory ? [...history!].sort((a, b) => b.report_date.localeCompare(a.report_date)) : [];
@@ -601,7 +594,7 @@ function EarningsTab({ calendar, history }: { calendar?: EarningsCalendar[]; his
   );
 }
 
-function AnalystTab({ trends }: { trends?: AnalystTrend[] }) {
+export function AnalystTab({ trends }: { trends?: AnalystTrend[] }) {
   if (!trends || trends.length === 0) {
     return <EmptyState>No analyst data available.</EmptyState>;
   }
@@ -675,7 +668,7 @@ function AnalystTab({ trends }: { trends?: AnalystTrend[] }) {
   );
 }
 
-function NewsTab({ news }: { news?: NewsItem[] }) {
+export function NewsTab({ news }: { news?: NewsItem[] }) {
   if (!news || news.length === 0) {
     return <EmptyState>No recent news available.</EmptyState>;
   }

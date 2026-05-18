@@ -29,9 +29,10 @@ export const DEFAULT_FILTERS: StrategyFilters = {
 interface Props {
   chains: OptionsChain[];
   earningsCalendar?: Record<string, EarningsCalendar[]>;
+  financialHealth?: Record<string, FinancialHealth>;
 }
 
-export default function OptionsTab({ chains, earningsCalendar }: Props) {
+export default function OptionsTab({ chains, earningsCalendar, financialHealth }: Props) {
   const [activeTicker, setActiveTicker] = useState<string>("");
   const [activeType, setActiveType] = useState<"CALL" | "PUT">("CALL");
   const [activeExpiration, setActiveExpiration] = useState<string>("");
@@ -42,12 +43,17 @@ export default function OptionsTab({ chains, earningsCalendar }: Props) {
     [chains],
   );
 
+  // Use parent-provided health data if available, otherwise fetch
   useEffect(() => {
+    if (financialHealth && Object.keys(financialHealth).length > 0) {
+      setHealthData(financialHealth);
+      return;
+    }
     if (sortedChains.length > 0) {
       const tickers = sortedChains.map((c) => c.ticker);
       getFinancialHealth(tickers).then(setHealthData).catch(() => {});
     }
-  }, [sortedChains]);
+  }, [sortedChains, financialHealth]);
 
   useEffect(() => {
     if (sortedChains.length > 0 && !sortedChains.find((c) => c.ticker === activeTicker)) {

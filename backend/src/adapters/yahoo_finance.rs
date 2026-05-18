@@ -288,7 +288,7 @@ fn compute_iv(market_price: f64, s: f64, k: f64, t: f64, r: f64, is_call: bool) 
     }
 
     let mut sigma: f64 = 0.30; // initial guess – 30 % IV
-    for _ in 0..200 {
+    for _ in 0..100 {
         let price = if is_call {
             bs_call_price(s, k, t, sigma, r)
         } else {
@@ -299,7 +299,7 @@ fn compute_iv(market_price: f64, s: f64, k: f64, t: f64, r: f64, is_call: bool) 
             break;
         }
         let diff = price - market_price;
-        if diff.abs() < 1e-7 {
+        if diff.abs() < 1e-6 {
             break;
         }
         sigma -= diff / v;
@@ -341,8 +341,9 @@ fn bs_put_theta(s: f64, k: f64, t: f64, sigma: f64, r: f64) -> f64 {
 const YF_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) \
     AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
-/// How long a crumb is considered valid before re-acquiring (25 minutes).
-const CRUMB_TTL_SECS: u64 = 25 * 60;
+/// How long a crumb is considered valid before re-acquiring (120 minutes).
+/// On 401 errors, the session is invalidated and re-acquired lazily.
+const CRUMB_TTL_SECS: u64 = 120 * 60;
 
 /// A centralized Yahoo Finance session that caches the crumb + cookie-enabled
 /// HTTP client. Multiple concurrent requests share the same crumb, and it is

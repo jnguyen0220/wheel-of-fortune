@@ -10,6 +10,7 @@ pub mod news;
 pub mod options;
 pub mod recommendations;
 pub mod screener;
+pub mod search;
 
 use axum::{routing::get, Router};
 use std::sync::Arc;
@@ -37,6 +38,7 @@ fn api_routes(state: Arc<AppState>) -> Router {
         .nest("/financials", financials::router(state.clone()))
         .nest("/screener", screener::router(state.clone()))
         .nest("/news", news::router(state.clone()))
+        .nest("/search", search::router(state.clone()))
         .nest("/discovery", discovery::router(state.clone()))
         .nest("/batch", batch::router(state.clone()))
 }

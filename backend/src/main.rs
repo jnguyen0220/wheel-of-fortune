@@ -18,7 +18,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use adapters::OptionsDataProvider;
 use adapters::yahoo_finance::{YahooFinanceAdapter, YahooSession};
 use cache::TtlCache;
-use models::{AnalystTrend, EarningsCalendar, EarningsResult, FinancialHealth, ScreenerCandidate, StockHolding, StockMarketData};
+use models::{AnalystTrend, EarningsCalendar, EarningsResult, FinancialHealth, OptionsChain, ScreenerCandidate, StockHolding, StockMarketData};
 use routes::discovery::DiscoveryItem;
 use routes::news::NewsItem;
 
@@ -45,6 +45,8 @@ pub struct AppState {
     pub news_cache: RwLock<TtlCache<Vec<NewsItem>>>,
     /// Cache for market data — TTL 2 minutes, max 50 items.
     pub market_data_cache: RwLock<TtlCache<StockMarketData>>,
+    /// Cache for options chains — TTL 5 minutes, max 30 items.
+    pub options_cache: RwLock<TtlCache<OptionsChain>>,
     /// Cache for discovery screener results — TTL 24 hours, max 20 items.
     pub discovery_cache: RwLock<TtlCache<Vec<DiscoveryItem>>>,
 }
@@ -80,6 +82,7 @@ async fn main() -> Result<()> {
         screener_cache: RwLock::new(TtlCache::new(50, Duration::from_secs(3 * 3600))),
         news_cache: RwLock::new(TtlCache::new(50, Duration::from_secs(15 * 60))),
         market_data_cache: RwLock::new(TtlCache::new(50, Duration::from_secs(2 * 60))),
+        options_cache: RwLock::new(TtlCache::new(30, Duration::from_secs(5 * 60))),
         discovery_cache: RwLock::new(TtlCache::new(50, Duration::from_secs(24 * 3600))),
     });
 

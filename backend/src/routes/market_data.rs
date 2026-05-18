@@ -47,10 +47,11 @@ async fn get_market_data(
         return Json(result);
     }
 
+    let provider = Arc::clone(&state.options_provider);
     let tasks: Vec<_> = uncached
         .into_iter()
         .map(|ticker| {
-            let provider = Arc::clone(&state.options_provider);
+            let provider = Arc::clone(&provider);
             tokio::spawn(async move {
                 match provider.fetch_stock_market_data(&ticker).await {
                     Ok(data) => Some((ticker, data)),

@@ -1,12 +1,15 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::time::{Duration, Instant};
 
-/// A generic fixed-capacity TTL cache.
+/// A generic fixed-capacity TTL cache with O(log n) LRU eviction.
 ///
 /// - Entries expire after `ttl` and are treated as missing on lookup.
-/// - When full, the oldest (least-recently-accessed) entry is evicted.
+/// - When full, the least-recently-accessed entry is evicted in O(log n)
+///   using a BTreeMap ordered by access time.
 pub struct TtlCache<V> {
     entries: HashMap<String, CacheEntry<V>>,
+    /// Maps (last_accessed, key) for O(log n) LRU eviction.
+    access_order: BTreeMap<(Instant, String), ()>,
     max_capacity: usize,
     ttl: Duration,
 }
@@ -21,6 +24,7 @@ impl<V: Clone> TtlCache<V> {
     pub fn new(max_capacity: usize, ttl: Duration) -> Self {
         Self {
             entries: HashMap::with_capacity(max_capacity),
+            access_order: BTreeMap::new(),
             max_capacity,
             ttl,
         }
@@ -46,10 +50,14 @@ impl<V: Clone> TtlCache<V> {
         let now = Instant::now();
         if let Some(entry) = self.entries.get_mut(key) {
             if now.duration_since(entry.inserted_at) > self.ttl {
+                self.access_order.remove(&(entry.last_accessed, key.to_string()));
                 self.entries.remove(key);
                 return None;
             }
+            // Update access order index
+            self.access_order.remove(&(entry.last_accessed, key.to_string()));
             entry.last_accessed = now;
+            self.access_order.insert((now, key.to_string()), ());
             Some(entry.data.clone())
         } else {
             None
@@ -60,29 +68,36 @@ impl<V: Clone> TtlCache<V> {
     pub fn insert(&mut self, key: String, data: V) {
         let now = Instant::now();
 
-        if self.entries.contains_key(&key) {
-            let entry = self.entries.get_mut(&key).unwrap();
+        if let Some(entry) = self.entries.get_mut(&key) {
+            self.access_order.remove(&(entry.last_accessed, key.clone()));
             entry.data = data;
             entry.last_accessed = now;
             entry.inserted_at = now;
+            self.access_order.insert((now, key), ());
             return;
         }
 
         // Evict expired entries first.
-        self.entries.retain(|_, e| now.duration_since(e.inserted_at) <= self.ttl);
-
-        if self.entries.len() >= self.max_capacity {
-            let oldest_key = self
-                .entries
-                .iter()
-                .min_by_key(|(_, e)| e.last_accessed)
-                .map(|(k, _)| k.clone());
-
-            if let Some(k) = oldest_key {
-                self.entries.remove(&k);
+        let expired_keys: Vec<String> = self.entries
+            .iter()
+            .filter(|(_, e)| now.duration_since(e.inserted_at) > self.ttl)
+            .map(|(k, _)| k.clone())
+            .collect();
+        for k in expired_keys {
+            if let Some(e) = self.entries.remove(&k) {
+                self.access_order.remove(&(e.last_accessed, k));
             }
         }
 
+        // Evict LRU entry if still at capacity (O(log n) via BTreeMap).
+        if self.entries.len() >= self.max_capacity {
+            if let Some(((_, oldest_key), _)) = self.access_order.iter().next().map(|(k, v)| (k.clone(), v)) {
+                self.entries.remove(&oldest_key);
+                self.access_order.remove(&(self.access_order.keys().next().unwrap().0, oldest_key));
+            }
+        }
+
+        self.access_order.insert((now, key.clone()), ());
         self.entries.insert(
             key,
             CacheEntry {

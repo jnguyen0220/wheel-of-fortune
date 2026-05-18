@@ -174,11 +174,15 @@ pub fn evaluate_wheel(
             let tiers = select_cc_tiers(&cc_qualified, chain.underlying_price, lots);
             let allocations = allocate_lots(lots, tiers.len());
 
-            for (contract, n_contracts) in tiers.iter().zip(allocations.iter()) {
+            for (idx, (contract, n_contracts)) in tiers.iter().zip(allocations.iter()).enumerate() {
                 let roc = contract.cc_return_on_capital();
                 let score = compute_quality_score(contract, roc);
+                let other_tiers: Vec<String> = tiers.iter().zip(allocations.iter()).enumerate()
+                    .filter(|(i, _)| *i != idx)
+                    .map(|(_, (c, n))| format!("{}× ${:.0}", n, c.strike))
+                    .collect();
                 let rationale =
-                    format_cc_rationale(contract, roc, shares_held, *n_contracts, lots);
+                    format_cc_rationale(contract, roc, shares_held, *n_contracts, lots, &other_tiers);
                 recommendations.push(WheelRecommendation {
                     ticker: chain.ticker.clone(),
                     leg: WheelLeg::CoveredCall,
@@ -735,7 +739,7 @@ fn compute_quality_score(contract: &OptionsContract, annualised_roc: f64) -> f64
 
 // ── Rationale formatters ──────────────────────────────────────────────────────
 
-fn format_cc_rationale(c: &OptionsContract, roc: f64, shares: u32, contracts: usize, total_lots: usize) -> String {
+fn format_cc_rationale(c: &OptionsContract, roc: f64, _shares: u32, contracts: usize, total_lots: usize, other_tiers: &[String]) -> String {
     let tier_label = if total_lots >= 3 {
         // Label by delta position: lower delta = more conservative (higher strike)
         if c.delta.abs() <= 0.24 {
@@ -759,11 +763,18 @@ fn format_cc_rationale(c: &OptionsContract, roc: f64, shares: u32, contracts: us
         String::new()
     };
 
+    let covered_shares = contracts * 100;
+    let other_note = if !other_tiers.is_empty() {
+        format!(" Remaining lots: {}.", other_tiers.join(", "))
+    } else {
+        String::new()
+    };
+
     format!(
         "{contracts_note}Sell the ${:.0} call, {} DTE \
-         (delta {:.2}, IV {:.0}%) against {shares} shares. \
+         (delta {:.2}, IV {:.0}%) against {covered_shares} shares. \
          Mid premium: ${:.2}/contract. Annualised ROC: {:.1}%. \
-         Strike is {:.1}% OTM, {}.",
+         Strike is {:.1}% OTM, {}.{other_note}",
         c.strike,
         c.dte,
         c.delta,

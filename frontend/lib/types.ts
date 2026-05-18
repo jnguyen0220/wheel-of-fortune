@@ -185,10 +185,42 @@ export interface DiscoveryItem {
 
 // ── News types ────────────────────────────────────────────────────────────────
 
+export interface SearchResult {
+  symbol: string;
+  name: string;
+  exchange: string;
+  type: string;
+}
+
 export interface NewsItem {
   ticker: string;
   title: string;
   publisher: string;
   link: string;
   published_at: number;
+}
+
+// ── Shared portfolio types ────────────────────────────────────────────────────
+
+export interface PositionTransaction {
+  id: string;
+  type: "buy" | "sell";
+  date: string;
+  quantity: number;
+  price: number;
+}
+
+export interface OptionsOrder {
+  id: string;
+  ticker: string;
+  option_type: "CALL" | "PUT";
+  leg: "CC" | "CSP";
+  strike: number;
+  expiration: string;
+  contracts: number;
+  premium: number;
+  status: "open" | "closed";
+  created_at: string;
+  close_premium?: number;
+  closed_at?: string;
 }

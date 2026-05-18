@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { StockHolding, StockHoldingInput, StockMarketData, EarningsCalendar, EarningsResult, AnalystTrend, FinancialHealth } from "@/lib/types";
 import { addHolding, deleteHolding, clearAllHoldings, updateHolding, getBatchData } from "@/lib/api";
 import { healthScoreColor, analystConsensus } from "@/lib/format";
-import Discovery from "./Discovery";
 import TickerLink from "./TickerLink";
 
 interface Props {
@@ -46,7 +45,6 @@ export default function InventoryForm({
   const [earningsData, setEarningsData] = useState<Record<string, { calendar: EarningsCalendar[]; history: EarningsResult[] }>>({});
   const [analystTrends, setAnalystTrends] = useState<Record<string, AnalystTrend[]>>({});
   const [healthData, setHealthData] = useState<Record<string, FinancialHealth>>({});
-  const [internalTab, setInternalTab] = useState<"add" | "discovery">("add");
 
   // Inline qty editing state
   const [editingQtyId, setEditingQtyId] = useState<string | null>(null);
@@ -288,42 +286,21 @@ export default function InventoryForm({
 
 
   return (
-    <section className={`card flex flex-col ${internalTab === "discovery" ? "h-full" : ""}`}>
-      {/* Internal tabs */}
+    <section className="card flex flex-col">
+      {/* Header */}
       <div className="flex items-center gap-3 p-4 border-b border-[#30363d]">
-        <div className="tab-group">
-          {(["add", "discovery"] as const).map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setInternalTab(tab)}
-              className={internalTab === tab ? "tab-btn-active" : "tab-btn-inactive"}
-            >
-              {tab === "add" ? (
-                <span className="inline-flex items-center gap-1.5">
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 0 0-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 0 0-16.536-1.84M7.5 14.25 5.106 5.272M6 20.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm12.75 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z" />
-                  </svg>
-                  {holdings.length > 0 && (
-                    <span className="text-[9px] font-bold text-[#58a6ff] bg-[#58a6ff15] border border-[#58a6ff30] px-1.5 py-0.5 rounded-full leading-none">{holdings.length}</span>
-                  )}
-                  Inventory
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1.5">
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9.004 9.004 0 0 0 8.716-6.747M12 21a9.004 9.004 0 0 1-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 0 1 7.843 4.582M12 3a8.997 8.997 0 0 0-7.843 4.582m15.686 0A11.953 11.953 0 0 1 12 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0 1 21 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0 1 12 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 0 1 3 12c0-1.605.42-3.113 1.157-4.418" />
-                  </svg>
-                  Discovery
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
+        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#c9d1d9]">
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 0 0-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 0 0-16.536-1.84M7.5 14.25 5.106 5.272M6 20.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm12.75 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z" />
+          </svg>
+          Inventory
+          {holdings.length > 0 && (
+            <span className="text-[9px] font-bold text-[#58a6ff] bg-[#58a6ff15] border border-[#58a6ff30] px-1.5 py-0.5 rounded-full leading-none">{holdings.length}</span>
+          )}
+        </span>
       </div>
 
-      <div className={`p-5 ${internalTab === "discovery" ? "flex-1 min-h-0 flex flex-col" : ""}`}>
-        {/* Add Ticker tab content */}
-        <div className={internalTab === "add" ? "" : "hidden"}>
+      <div className="p-5">
         {/* Toolbar */}
         <div className="toolbar mb-3">
           <button
@@ -795,30 +772,6 @@ export default function InventoryForm({
             </table>
           </div>
         )}
-        </div>
-        {/* End Add Ticker tab */}
-
-        {/* Discovery tab content */}
-        <div className={internalTab === "discovery" ? "flex-1 min-h-0" : "hidden"}>
-          {internalTab === "discovery" && <Discovery
-            existingTickers={holdings.map(h => h.ticker)}
-            onAddTicker={async (ticker) => {
-              try {
-                await addHolding({ ticker, shares: 0, cost_basis: 0, current_price: 0 });
-                onChanged();
-              } catch { /* ignore duplicates */ }
-            }}
-            onRemoveTicker={async (ticker) => {
-              const holding = holdings.find(h => h.ticker.toUpperCase() === ticker.toUpperCase());
-              if (holding) {
-                try {
-                  await deleteHolding(holding.id);
-                  onChanged();
-                } catch { /* ignore */ }
-              }
-            }}
-          />}
-        </div>
       </div>
     </section>
   );

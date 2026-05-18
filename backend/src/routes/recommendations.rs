@@ -144,26 +144,27 @@ async fn get_recommendations(
         .cloned()
         .collect();
 
-    // Build market data for each ticker — fetch concurrently.
-    let market_data_tasks: Vec<_> = chains
-        .iter()
-        .map(|chain| {
-            let provider = Arc::clone(&state.options_provider);
-            let chain_ticker = chain.ticker.clone();
-            let chain_price = chain.underlying_price;
-            let has_contracts = !chain.contracts.is_empty();
-            tokio::spawn(async move {
-                match provider.fetch_stock_market_data(&chain_ticker).await {
-                    Ok(data) => (chain_ticker, data),
-                    Err(_) => (
-                        chain_ticker.clone(),
+    // Build market data from options chains (underlying_price) + cached market data.
+    // Avoids redundant HTTP calls since chains already carry the current price.
+    let mut market_data: HashMap<String, StockMarketData> = HashMap::new();
+    {
+        let cache = state.market_data_cache.read().await;
+        for chain in &chains {
+            if let Some(cached_md) = cache.peek(&chain.ticker) {
+                market_data.insert(chain.ticker.clone(), cached_md);
+            } else {
+                // Construct minimal market data from the chain's underlying price
+                let price = chain.underlying_price;
+                if price > 0.0 {
+                    market_data.insert(
+                        chain.ticker.clone(),
                         StockMarketData {
-                            ticker: chain_ticker,
-                            price: chain_price,
-                            daily_low: if has_contracts { chain_price * 0.98 } else { 0.0 },
-                            daily_high: if has_contracts { chain_price * 1.02 } else { 0.0 },
-                            week52_low: if has_contracts { chain_price * 0.75 } else { 0.0 },
-                            week52_high: if has_contracts { chain_price * 1.30 } else { 0.0 },
+                            ticker: chain.ticker.clone(),
+                            price,
+                            daily_low: price * 0.98,
+                            daily_high: price * 1.02,
+                            week52_low: price * 0.75,
+                            week52_high: price * 1.30,
                             has_pre_post_market_data: false,
                             market_state: "REGULAR".to_string(),
                             pre_market_price: None,
@@ -171,17 +172,39 @@ async fn get_recommendations(
                             post_market_price: None,
                             post_market_change_percent: None,
                         },
-                    ),
+                    );
                 }
-            })
-        })
+            }
+        }
+    }
+
+    // Fetch market data only for tickers NOT already resolved
+    let missing_tickers: Vec<String> = chains
+        .iter()
+        .map(|c| c.ticker.clone())
+        .filter(|t| !market_data.contains_key(t))
         .collect();
 
-    let mut market_data: HashMap<String, StockMarketData> = HashMap::new();
-    for task in market_data_tasks {
-        if let Ok((ticker, data)) = task.await {
-            if data.price > 0.0 {
-                market_data.insert(ticker, data);
+    if !missing_tickers.is_empty() {
+        let market_data_tasks: Vec<_> = missing_tickers
+            .iter()
+            .map(|ticker| {
+                let provider = Arc::clone(&state.options_provider);
+                let t = ticker.clone();
+                tokio::spawn(async move {
+                    match provider.fetch_stock_market_data(&t).await {
+                        Ok(data) => Some((t, data)),
+                        Err(_) => None,
+                    }
+                })
+            })
+            .collect();
+
+        for task in market_data_tasks {
+            if let Ok(Some((ticker, data))) = task.await {
+                if data.price > 0.0 {
+                    market_data.insert(ticker, data);
+                }
             }
         }
     }

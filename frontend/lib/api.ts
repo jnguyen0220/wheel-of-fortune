@@ -11,10 +11,15 @@ import type {
   OptionsChain,
   FinancialHealth,
   NewsItem,
+  SearchResult,
 } from "./types";
 
 // Use relative paths - Next.js will proxy to backend via rewrites
 const BASE_URL = "";
+
+// ── Request deduplication ────────────────────────────────────────────────────
+
+const inflight = new Map<string, Promise<unknown>>();
 
 // ── Generic fetch helper ─────────────────────────────────────────────────────
 
@@ -22,22 +27,39 @@ async function apiFetch<T>(
   path: string,
   options?: RequestInit,
 ): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
+  const method = options?.method ?? "GET";
+  // Only deduplicate GET requests (safe & idempotent)
+  const dedupeKey = method === "GET" ? `${method}:${path}` : "";
 
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`API error ${res.status}: ${body}`);
+  if (dedupeKey && inflight.has(dedupeKey)) {
+    return inflight.get(dedupeKey) as Promise<T>;
   }
 
-  // Handle 204 No Content (empty response body)
-  if (res.status === 204) {
-    return undefined as unknown as T;
+  const promise = (async () => {
+    const res = await fetch(`${BASE_URL}${path}`, {
+      headers: { "Content-Type": "application/json" },
+      ...options,
+    });
+
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`API error ${res.status}: ${body}`);
+    }
+
+    // Handle 204 No Content (empty response body)
+    if (res.status === 204) {
+      return undefined as unknown as T;
+    }
+
+    return res.json() as Promise<T>;
+  })();
+
+  if (dedupeKey) {
+    inflight.set(dedupeKey, promise);
+    promise.finally(() => inflight.delete(dedupeKey));
   }
 
-  return res.json() as Promise<T>;
+  return promise;
 }
 
 // ── Inventory API ────────────────────────────────────────────────────────────
@@ -149,6 +171,10 @@ export async function getFinancialHealth(
 }
 
 // ── Batch API ────────────────────────────────────────────────────────────────
+
+export async function searchTickers(query: string): Promise<SearchResult[]> {
+  return apiFetch<SearchResult[]>(`/api/search?q=${encodeURIComponent(query)}`);
+}
 
 export async function getNews(tickers?: string[]): Promise<NewsItem[]> {
   const params = new URLSearchParams();
