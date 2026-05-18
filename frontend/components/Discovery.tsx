@@ -856,7 +856,8 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                   const md = watchBatch.market_data[t];
                   const health = watchBatch.financials[t];
                   const isActive = selectedWatch === t;
-                  const hasTxns = (positions[t] || []).length > 0;
+                  const txns = positions[t] || [];
+                  const hasTxns = txns.filter(tx => tx.type === "buy").reduce((s, tx) => s + tx.quantity, 0) - txns.filter(tx => tx.type === "sell").reduce((s, tx) => s + tx.quantity, 0) > 0;
                   return (
                     <div
                       key={t}
