@@ -763,10 +763,11 @@ function MyContractsTab() {
               <col />
               <col />
               <col />
+              <col />
             </colgroup>
             <tbody>
               <tr>
-                <td colSpan={8} className="px-3 py-2.5 text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">Grand Total</td>
+                <td colSpan={9} className="px-3 py-2.5 text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">Grand Total</td>
                 <td className="px-3 py-2.5 text-right text-[#3fb950] tabular-nums font-bold">${totalSold.toLocaleString()}</td>
                 <td className="px-3 py-2.5 text-right tabular-nums font-bold">{closedBuyBack > 0 ? <span className="text-[#f85149]">${closedBuyBack.toLocaleString()}</span> : <span className="text-[#30363d]">&mdash;</span>}</td>
                 <td className={`px-3 py-2.5 text-right tabular-nums font-bold ${totalPremium >= 0 ? "text-[#3fb950]" : "text-[#f85149]"}`}>{totalPremium >= 0 ? "+" : ""}${totalPremium.toLocaleString()}</td>
@@ -793,6 +794,7 @@ function MyContractsTab() {
                     <col />
                     <col />
                     <col />
+                    <col />
                   </colgroup>
                   <thead>
                     {/* Ticker header row */}
@@ -805,7 +807,7 @@ function MyContractsTab() {
                           <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                         </svg>
                       </td>
-                      <td colSpan={7} className="px-3 py-2">
+                      <td colSpan={8} className="px-3 py-2">
                         <div className="flex items-center gap-2">
                           {summary.open > 0 && <div className="w-1.5 h-1.5 rounded-full bg-[#3fb950]"></div>}
                           <span className="text-[12px] font-bold text-[#c9d1d9] tracking-wide">{ticker}</span>
@@ -831,6 +833,7 @@ function MyContractsTab() {
                         <th></th>
                         <th className="px-3 py-1.5 text-left text-[9px] font-semibold text-[#8b949e] uppercase tracking-wider">Type</th>
                         <th className="px-3 py-1.5 text-center text-[9px] font-semibold text-[#8b949e] uppercase tracking-wider">Status</th>
+                        <th className="px-3 py-1.5 text-center text-[9px] font-semibold text-[#8b949e] uppercase tracking-wider"></th>
                         <th className="px-3 py-1.5 text-right text-[9px] font-semibold text-[#8b949e] uppercase tracking-wider">Strike</th>
                         <th className="px-3 py-1.5 text-left text-[9px] font-semibold text-[#8b949e] uppercase tracking-wider">Expiration</th>
                         <th className="px-3 py-1.5 text-right text-[9px] font-semibold text-[#8b949e] uppercase tracking-wider">DTE</th>
@@ -892,6 +895,17 @@ function MyContractsTab() {
                                   </select>
                                 )}
                               </td>
+                              <td className="px-3 py-2 text-center">
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setOrders(prev => prev.filter(x => x.id !== o.id)); }}
+                                  className="rounded p-0.5 text-[#484f58] hover:text-[#f85149] hover:bg-[#f85149]/10 transition-colors focus:outline-none"
+                                  title="Delete contract"
+                                >
+                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
+                                </button>
+                              </td>
                               <td className="px-3 py-2 text-right text-[#c9d1d9] tabular-nums font-medium">${o.strike.toFixed(2)}</td>
                               <td className="px-3 py-2 text-[#8b949e] tabular-nums">{o.expiration}</td>
                               <td className="px-3 py-2 text-right tabular-nums">
@@ -921,7 +935,7 @@ function MyContractsTab() {
                             {isClosed && isDetailExpanded && (
                               <tr className="bg-[#161b22]/40 border-b border-[#21262d]/20">
                                 <td></td>
-                                <td colSpan={10} className="px-3 py-3">
+                                <td colSpan={11} className="px-3 py-3">
                                   <div className="flex items-center gap-8 text-[10px]">
                                     <div>
                                       <span className="text-[#484f58] text-[9px] uppercase tracking-wider">Closed On</span>
@@ -957,7 +971,7 @@ function MyContractsTab() {
                   {isTickerExpanded && (
                     <tfoot>
                       <tr className="bg-[#161b22]/30 border-t border-[#21262d]/40">
-                        <td colSpan={8} className="px-3 py-2 text-right text-[9px] font-semibold text-[#484f58] uppercase tracking-wider">Subtotal</td>
+                        <td colSpan={9} className="px-3 py-2 text-right text-[9px] font-semibold text-[#484f58] uppercase tracking-wider">Subtotal</td>
                         <td className="px-3 py-2 text-right text-[#3fb950] tabular-nums font-bold text-[10px]">${summary.collected.toLocaleString()}</td>
                         <td className="px-3 py-2 text-right tabular-nums font-bold text-[10px]">{summary.buyback > 0 ? <span className="text-[#f85149]">${summary.buyback.toLocaleString()}</span> : <span className="text-[#30363d]">&mdash;</span>}</td>
                         <td className={`px-3 py-2 text-right tabular-nums font-bold text-[10px] ${summary.net >= 0 ? "text-[#3fb950]" : "text-[#f85149]"}`}>{summary.net >= 0 ? "+" : ""}${summary.net.toLocaleString()}</td>

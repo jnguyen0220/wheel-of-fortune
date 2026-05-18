@@ -1964,6 +1964,7 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                                   <th className="px-2 py-1.5 text-right font-medium">Premium</th>
                                   <th className="px-2 py-1.5 text-right font-medium">Intrinsic</th>
                                   <th className="px-2 py-1.5 text-center font-medium">Status</th>
+                                  <th className="px-2 py-1.5 text-center font-medium"></th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -2013,6 +2014,17 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                                           <option value="open">Open</option>
                                           <option value="closed">Closed</option>
                                         </select>
+                                      </td>
+                                      <td className="px-2 py-1.5 text-center">
+                                        <button
+                                          onClick={() => setOrders(prev => prev.filter(x => x.id !== o.id))}
+                                          className="rounded p-0.5 text-[#484f58] hover:text-[#f85149] hover:bg-[#f85149]/10 transition-colors focus:outline-none"
+                                          title="Delete contract"
+                                        >
+                                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                          </svg>
+                                        </button>
                                       </td>
                                     </tr>
                                   );
