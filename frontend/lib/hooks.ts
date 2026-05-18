@@ -1,67 +1,63 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useCallback, useRef, useMemo, useSyncExternalStore } from "react";
 
 /**
  * Custom hook for state synced to localStorage.
- * - Loads initial value from localStorage on mount
- * - Persists changes to localStorage
- * - Syncs across tabs via storage event
- * - Re-reads on window focus / visibility change (for same-tab updates)
+ * Uses useSyncExternalStore for reliable cross-instance synchronization.
+ * - localStorage is the single source of truth
+ * - All hook instances sharing a key stay in sync automatically
+ * - Works across tabs (native storage event) and within the same tab (custom event)
  */
 export function useLocalStorageState<T>(
   key: string,
   initialValue: T,
 ): [T, (valueOrUpdater: T | ((prev: T) => T)) => void] {
-  const [state, setStateInner] = useState<T>(initialValue);
-  const loaded = useRef(false);
+  const initialRef = useRef(initialValue);
+  const fallback = useMemo(() => JSON.stringify(initialRef.current), []);
 
-  // Load from localStorage on mount
-  useEffect(() => {
-    if (loaded.current) return;
-    loaded.current = true;
-    try {
-      const saved = localStorage.getItem(key);
-      if (saved) setStateInner(JSON.parse(saved));
-    } catch {}
-  }, [key]);
+  const getSnapshot = useCallback(
+    () => localStorage.getItem(key) ?? fallback,
+    [key, fallback],
+  );
 
-  // Listen for cross-tab storage events
-  useEffect(() => {
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === key && e.newValue) {
-        try { setStateInner(JSON.parse(e.newValue)); } catch {}
-      }
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, [key]);
+  const getServerSnapshot = useCallback(() => fallback, [fallback]);
 
-  // Re-read on focus / visibility change (same-tab updates)
-  useEffect(() => {
-    const onFocus = () => {
-      try {
-        const saved = localStorage.getItem(key);
-        if (saved) setStateInner(JSON.parse(saved));
-      } catch {}
-    };
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onFocus);
-    return () => {
-      window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onFocus);
-    };
-  }, [key]);
+  const subscribe = useCallback(
+    (onStoreChange: () => void) => {
+      // Cross-tab: native storage event
+      const onStorage = (e: StorageEvent) => {
+        if (e.key === key) onStoreChange();
+      };
+      // Same-tab: custom event dispatched by setState below
+      const onLocal = (e: Event) => {
+        if ((e as CustomEvent).detail?.key === key) onStoreChange();
+      };
+      window.addEventListener("storage", onStorage);
+      window.addEventListener("local-storage-update", onLocal);
+      return () => {
+        window.removeEventListener("storage", onStorage);
+        window.removeEventListener("local-storage-update", onLocal);
+      };
+    },
+    [key],
+  );
+
+  const snapshot = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  const state: T = useMemo(() => JSON.parse(snapshot), [snapshot]);
 
   const setState = useCallback(
     (valueOrUpdater: T | ((prev: T) => T)) => {
-      setStateInner((prev) => {
-        const next = typeof valueOrUpdater === "function"
-          ? (valueOrUpdater as (prev: T) => T)(prev)
+      const currentStr = localStorage.getItem(key);
+      const current: T = currentStr ? JSON.parse(currentStr) : initialRef.current;
+      const next =
+        typeof valueOrUpdater === "function"
+          ? (valueOrUpdater as (prev: T) => T)(current)
           : valueOrUpdater;
-        localStorage.setItem(key, JSON.stringify(next));
-        return next;
-      });
+      localStorage.setItem(key, JSON.stringify(next));
+      window.dispatchEvent(
+        new CustomEvent("local-storage-update", { detail: { key } }),
+      );
     },
     [key],
   );

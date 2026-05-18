@@ -1741,7 +1741,7 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                               const result = await getRecommendations({
                                 inventory: positionHoldings.length > 0 ? { holdings: positionHoldings } : undefined,
                                 tickers: [ticker],
-                                available_cash: netShares < 100 ? 100000 : undefined,
+                                available_cash: 100000,
                                 dte_min: dteMin,
                                 dte_max: dteMax,
                                 min_open_interest: minOi,

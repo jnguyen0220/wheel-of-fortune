@@ -111,6 +111,26 @@ pub fn evaluate_wheel(
     let max_roc = filters.max_annualised_roc.unwrap_or(120.0);
     let earnings_warn_days = EARNINGS_WARNING_DAYS;
 
+    // Detect off-hours/stale data: if the vast majority of contracts have OI=0,
+    // the market data is from pre-market or a weekend. In that case, skip the OI
+    // filter so the engine still produces recommendations.
+    let total_contracts: usize = chains.iter().map(|c| c.contracts.len()).sum();
+    let contracts_with_oi: usize = chains
+        .iter()
+        .flat_map(|c| c.contracts.iter())
+        .filter(|c| c.open_interest > 0)
+        .count();
+    let oi_data_available = total_contracts == 0
+        || (contracts_with_oi as f64 / total_contracts as f64) > 0.05;
+    let effective_min_oi = if oi_data_available { min_oi } else { 0 };
+    if !oi_data_available {
+        tracing::debug!(
+            total_contracts,
+            contracts_with_oi,
+            "OI data unavailable (pre-market/off-hours), relaxing OI filter"
+        );
+    }
+
     // Build a map of ticker → nearest future earnings (days_until).
     let mut earnings_map: HashMap<String, i64> = HashMap::new();
     for e in earnings {
@@ -154,7 +174,7 @@ pub fn evaluate_wheel(
                         && c.dte <= max_dte
                         && c.delta.abs() >= cc_delta_min
                         && c.delta.abs() <= cc_delta_max
-                        && c.open_interest >= min_oi
+                        && c.open_interest >= effective_min_oi
                         && c.strike > chain.underlying_price
                         && c.cc_return_on_capital() >= min_roc
                         && c.cc_return_on_capital() <= max_roc
@@ -229,10 +249,9 @@ pub fn evaluate_wheel(
             .find(|h| h.ticker.to_uppercase() == chain.ticker.to_uppercase());
         let shares_held = holding.map(|h| h.shares).unwrap_or(0);
 
-        // If the user holds ≥ 100 shares, they should sell covered calls — not CSPs.
-        if shares_held >= 100 {
-            continue;
-        }
+        // Note: Even if the user holds ≥ 100 shares, we still generate CSP
+        // recommendations — they may want to accumulate more shares or sell
+        // additional puts while also holding covered calls.
 
         let holding_note = match holding {
             Some(h) if h.shares > 0 =>
@@ -246,7 +265,7 @@ pub fn evaluate_wheel(
                 c.option_type == OptionType::Put
                     && c.dte >= min_dte && c.dte <= max_dte
                     && c.delta.abs() >= csp_delta_min && c.delta.abs() <= csp_delta_max
-                    && c.open_interest >= min_oi
+                    && c.open_interest >= effective_min_oi
                     && c.strike < chain.underlying_price
                     && c.csp_return_on_capital() >= min_roc
                     && c.csp_return_on_capital() <= max_roc
