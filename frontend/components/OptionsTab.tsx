@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import type { OptionsChain, OptionsContract, EarningsCalendar, FinancialHealth } from "@/lib/types";
-import { getFinancialHealth } from "@/lib/api";
+import { getBatchData } from "@/lib/api";
 import { healthScoreColor, earningsDotInfo, nextEarningsDays, earningsDaysColor, earningsDaysLabel } from "@/lib/format";
 import TickerLink from "./TickerLink";
 
@@ -51,7 +51,7 @@ export default function OptionsTab({ chains, earningsCalendar, financialHealth }
     }
     if (sortedChains.length > 0) {
       const tickers = sortedChains.map((c) => c.ticker);
-      getFinancialHealth(tickers).then(setHealthData).catch(() => {});
+      getBatchData(tickers).then((b) => setHealthData(b.financials)).catch(() => {});
     }
   }, [sortedChains, financialHealth]);
 

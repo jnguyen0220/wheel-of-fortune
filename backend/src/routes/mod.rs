@@ -11,6 +11,7 @@ pub mod options;
 pub mod recommendations;
 pub mod screener;
 pub mod search;
+pub mod technicals;
 
 use axum::{routing::get, Router};
 use std::sync::Arc;
@@ -41,4 +42,5 @@ fn api_routes(state: Arc<AppState>) -> Router {
         .nest("/search", search::router(state.clone()))
         .nest("/discovery", discovery::router(state.clone()))
         .nest("/batch", batch::router(state.clone()))
+        .nest("/technicals", technicals::router(state.clone()))
 }

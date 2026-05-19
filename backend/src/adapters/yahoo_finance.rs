@@ -26,7 +26,7 @@ use tokio::sync::RwLock;
 use tracing::{debug, instrument};
 
 use crate::adapters::OptionsDataProvider;
-use crate::models::{AnalystTrend, EarningsCalendar, EarningsResult};
+use crate::models::{AnalystTrend, Candle, EarningsCalendar, EarningsResult};
 use crate::models::{OptionsChain, OptionsContract, OptionType, StockMarketData};
 
 // ── Market data response types (quote API) ───────────────────────────────────
@@ -1242,4 +1242,105 @@ pub async fn fetch_screener_data(
     crate::models::compute_value_score(&mut candidate);
 
     Ok(candidate)
+}
+
+// ── Chart data (historical OHLCV) ────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct YahooChartResponse {
+    chart: YahooChartResult,
+}
+
+#[derive(Debug, Deserialize)]
+struct YahooChartResult {
+    result: Option<Vec<YahooChartData>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct YahooChartData {
+    timestamp: Option<Vec<i64>>,
+    indicators: YahooIndicators,
+}
+
+#[derive(Debug, Deserialize)]
+struct YahooIndicators {
+    quote: Vec<YahooQuoteIndicator>,
+}
+
+#[derive(Debug, Deserialize)]
+struct YahooQuoteIndicator {
+    open: Vec<Option<f64>>,
+    high: Vec<Option<f64>>,
+    low: Vec<Option<f64>>,
+    close: Vec<Option<f64>>,
+    volume: Vec<Option<u64>>,
+}
+
+/// Fetch historical daily OHLCV candles from Yahoo Finance chart API.
+///
+/// `range` can be "3mo", "6mo", "1y", etc.
+/// Returns candles ordered oldest → newest.
+#[instrument(skip(session))]
+pub async fn fetch_chart_data(
+    session: &YahooSession,
+    ticker: &str,
+    range: &str,
+) -> Result<Vec<Candle>> {
+    let url = format!(
+        "https://query1.finance.yahoo.com/v8/finance/chart/{}?interval=1d&range={}",
+        ticker.to_uppercase(),
+        range
+    );
+
+    let resp = session
+        .http
+        .get(&url)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .context("HTTP request to Yahoo Finance chart API failed")?;
+
+    if !resp.status().is_success() {
+        anyhow::bail!(
+            "Yahoo Finance chart API returned HTTP {} for {}",
+            resp.status(),
+            ticker
+        );
+    }
+
+    let body: YahooChartResponse = resp
+        .json()
+        .await
+        .context("Failed to parse Yahoo Finance chart JSON")?;
+
+    let data = body
+        .chart
+        .result
+        .and_then(|r| r.into_iter().next())
+        .context("Yahoo Finance chart returned empty result")?;
+
+    let timestamps = data.timestamp.unwrap_or_default();
+    let quote = data
+        .indicators
+        .quote
+        .into_iter()
+        .next()
+        .context("Yahoo Finance chart missing quote indicators")?;
+
+    let candles: Vec<Candle> = timestamps
+        .into_iter()
+        .enumerate()
+        .filter_map(|(i, ts)| {
+            Some(Candle {
+                timestamp: ts,
+                open: quote.open.get(i).copied().flatten()?,
+                high: quote.high.get(i).copied().flatten()?,
+                low: quote.low.get(i).copied().flatten()?,
+                close: quote.close.get(i).copied().flatten()?,
+                volume: quote.volume.get(i).copied().flatten().unwrap_or(0),
+            })
+        })
+        .collect();
+
+    Ok(candles)
 }

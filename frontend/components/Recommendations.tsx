@@ -3,7 +3,7 @@
 import React, { useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import type { WheelRecommendation, EarningsCalendar, EarningsResult, AnalystTrend, FinancialHealth } from "@/lib/types";
-import { getFinancialHealth } from "@/lib/api";
+import { getBatchData } from "@/lib/api";
 import { healthScoreColor, earningsDotInfo, nextEarningsDays, earningsDaysColor, earningsDaysLabel, analystConsensus } from "@/lib/format";
 import type { StrategyFilters } from "./OptionsTab";
 import { DEFAULT_FILTERS } from "./OptionsTab";
@@ -59,7 +59,7 @@ function TradesTable({ ccTrades, cspTrades, earningsCalendar, earningsHistory, a
   // Fetch health data
   React.useEffect(() => {
     if (allTickers.length > 0) {
-      getFinancialHealth(allTickers).then(setHealthData).catch(() => {});
+      getBatchData(allTickers).then((b) => setHealthData(b.financials)).catch(() => {});
     }
   }, [allTickers]);
 
@@ -304,6 +304,7 @@ function TradesTable({ ccTrades, cspTrades, earningsCalendar, earningsHistory, a
                   document.body
                 )}
               </th>
+              <th className="pr-3 pl-2 py-2 text-right text-[9px] font-bold uppercase tracking-wider text-[#484f58]">Trend</th>
             </tr>
           </thead>
           <tbody>
@@ -366,6 +367,22 @@ function TradesTable({ ccTrades, cspTrades, earningsCalendar, earningsHistory, a
                         </div>
                         <span className={`text-[10px] font-medium w-5 text-right ${rec.quality_score >= 70 ? 'text-[#3fb950]' : rec.quality_score >= 40 ? 'text-[#d29922]' : 'text-[#f85149]'}`}>{rec.quality_score.toFixed(0)}</span>
                       </div>
+                    </td>
+                    <td className="pr-3 pl-2 py-1.5 text-right">
+                      {rec.trend_signal ? (
+                        <span
+                          className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full ${
+                            (rec.trend_score ?? 0) > 2 ? 'bg-[#3fb950]/10 text-[#3fb950]' :
+                            (rec.trend_score ?? 0) < -2 ? 'bg-[#f85149]/10 text-[#f85149]' :
+                            'bg-[#30363d] text-[#8b949e]'
+                          }`}
+                          title={rec.trend_signal}
+                        >
+                          {(rec.trend_score ?? 0) > 0 ? '▲' : (rec.trend_score ?? 0) < 0 ? '▼' : '—'} {((rec.trend_score ?? 0) >= 0 ? '+' : '')}{(rec.trend_score ?? 0).toFixed(0)}
+                        </span>
+                      ) : (
+                        <span className="text-[9px] text-[#30363d]">—</span>
+                      )}
                     </td>
                   </tr>
               );

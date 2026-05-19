@@ -10,11 +10,7 @@ import type {
   NewsItem,
 } from "@/lib/types";
 import {
-  getFinancialHealth,
-  getMarketData,
-  getEarningsCalendar,
-  getEarningsHistory,
-  getAnalystTrends,
+  getBatchData,
   getNews,
 } from "@/lib/api";
 import { healthScoreBadgeColor, verdictBadgeColor } from "@/lib/format";
@@ -57,21 +53,17 @@ export function HealthPopupProvider({ children }: { children: React.ReactNode })
       fetchingRef.current.add(t);
       setLoading(true);
       Promise.all([
-        getFinancialHealth([t]).catch(() => ({}) as Record<string, FinancialHealth>),
-        getMarketData([t]).catch(() => ({}) as Record<string, StockMarketData>),
-        getEarningsCalendar([t]).catch(() => ({}) as Record<string, EarningsCalendar[]>),
-        getEarningsHistory([t]).catch(() => ({}) as Record<string, EarningsResult[]>),
-        getAnalystTrends([t]).catch(() => ({}) as Record<string, AnalystTrend[]>),
+        getBatchData([t]).catch(() => ({ market_data: {}, earnings_calendar: {}, earnings_history: {}, analyst_trends: {}, financials: {} })),
         getNews([t]).catch(() => [] as NewsItem[]),
-      ]).then(([healthData, marketData, earningsCal, earningsHist, analyst, news]) => {
+      ]).then(([batch, news]) => {
         setCache((prev) => ({
           ...prev,
           [t]: {
-            health: healthData[t],
-            marketData: marketData[t],
-            earningsCalendar: earningsCal[t] ?? [],
-            earningsHistory: earningsHist[t] ?? [],
-            analystTrends: analyst[t] ?? [],
+            health: batch.financials[t],
+            marketData: batch.market_data[t],
+            earningsCalendar: batch.earnings_calendar[t] ?? [],
+            earningsHistory: batch.earnings_history[t] ?? [],
+            analystTrends: batch.analyst_trends[t] ?? [],
             news: Array.isArray(news) ? news.filter((n) => n.ticker === t) : [],
           },
         }));

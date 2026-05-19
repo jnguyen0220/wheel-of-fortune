@@ -19,6 +19,7 @@ use adapters::OptionsDataProvider;
 use adapters::yahoo_finance::{YahooFinanceAdapter, YahooSession};
 use cache::TtlCache;
 use models::{AnalystTrend, EarningsCalendar, EarningsResult, FinancialHealth, OptionsChain, ScreenerCandidate, StockHolding, StockMarketData};
+use models::chart::Candle;
 use routes::discovery::DiscoveryItem;
 use routes::news::NewsItem;
 
@@ -49,6 +50,8 @@ pub struct AppState {
     pub options_cache: RwLock<TtlCache<OptionsChain>>,
     /// Cache for discovery screener results — TTL 24 hours, max 20 items.
     pub discovery_cache: RwLock<TtlCache<Vec<DiscoveryItem>>>,
+    /// Cache for chart candle data — TTL 30 minutes, max 250 items.
+    pub chart_cache: RwLock<TtlCache<Vec<Candle>>>,
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────
@@ -84,6 +87,7 @@ async fn main() -> Result<()> {
         market_data_cache: RwLock::new(TtlCache::new(50, Duration::from_secs(2 * 60))),
         options_cache: RwLock::new(TtlCache::new(30, Duration::from_secs(5 * 60))),
         discovery_cache: RwLock::new(TtlCache::new(50, Duration::from_secs(24 * 3600))),
+        chart_cache: RwLock::new(TtlCache::new(250, Duration::from_secs(30 * 60))),
     });
 
     // CORS – allow all origins in development. Tighten for production.

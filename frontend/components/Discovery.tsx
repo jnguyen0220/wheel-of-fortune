@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import type { DiscoveryItem, FinancialHealth, AnalystTrend, SearchResult, StockMarketData, OptionsChain, EarningsCalendar, EarningsResult, WheelRecommendation, PositionTransaction, OptionsOrder } from "@/lib/types";
-import { getDiscovery, getBatchData, prefetchDiscovery, searchTickers, getOptionsChains, getMarketData, getRecommendations } from "@/lib/api";
+import type { DiscoveryItem, FinancialHealth, AnalystTrend, SearchResult, StockMarketData, OptionsChain, EarningsCalendar, EarningsResult, WheelRecommendation, PositionTransaction, OptionsOrder, EmaPullbackSignal } from "@/lib/types";
+import { getDiscovery, getBatchData, prefetchDiscovery, searchTickers, getOptionsChains, getMarketData, getRecommendations, getTechnicals } from "@/lib/api";
 import { healthScoreColor } from "@/lib/format";
 import { useLocalStorageState } from "@/lib/hooks";
 import TickerLink from "./TickerLink";
@@ -101,8 +101,17 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
   const prefetched = useRef(false);
   const resultsRef = useRef<HTMLDivElement>(null);
   const tableScrollRef = useRef<HTMLDivElement>(null);
-  const [leftTab, setLeftTab] = useState<"screeners" | "search" | "watchlist">("watchlist");
+  const [leftTab, setLeftTab] = useState<"screeners" | "search" | "watchlist" | "signals">("watchlist");
   const [searchQuery, setSearchQuery] = useState("");
+
+  // ── Signals scan state ──
+  const [signalResults, setSignalResults] = useState<EmaPullbackSignal[]>([]);
+  const [signalLoading, setSignalLoading] = useState(false);
+  const [signalScanned, setSignalScanned] = useState(false);
+  const [signalSort, setSignalSort] = useState<{ field: "ticker" | "price" | "health" | "chains" | "analyst"; dir: SortDir }>({ field: "ticker", dir: "asc" });
+  const [signalHealth, setSignalHealth] = useState<Record<string, FinancialHealth>>({});
+  const [signalChains, setSignalChains] = useState<Record<string, number>>({});
+  const [signalAnalyst, setSignalAnalyst] = useState<Record<string, AnalystTrend>>({});
 
   // ── Watchlist state ──
   const [watchlist, setWatchlist] = useLocalStorageState<string[]>("watchlist", []);
@@ -111,7 +120,7 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
   const [watchSortField, setWatchSortField] = useState<WatchSortField>("ticker");
   const [watchSortDir, setWatchSortDir] = useState<SortDir>("asc");
   const [watchRefreshKey, setWatchRefreshKey] = useState(0);
-  const [watchDetailTab, setWatchDetailTab] = useState<"position" | "option" | "order">("position");
+  const [watchDetailTab, setWatchDetailTab] = useState<"position" | "option" | "order" | "technicals">("position");
   const [watchBatch, setWatchBatch] = useState<{
     financials: Record<string, FinancialHealth>;
     analyst_trends: Record<string, AnalystTrend[]>;
@@ -125,6 +134,8 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
   const [watchOptionsSubTab, setWatchOptionsSubTab] = useState<"chain" | "recommendation">("chain");
   const [watchRecs, setWatchRecs] = useState<WheelRecommendation[]>([]);
   const [watchRecsLoading, setWatchRecsLoading] = useState(false);
+  const [watchTechnicals, setWatchTechnicals] = useState<EmaPullbackSignal | null>(null);
+  const [watchTechnicalsLoading, setWatchTechnicalsLoading] = useState(false);
   const optionsChainRef = useRef<HTMLDivElement>(null);
   const optionsPriceDividerRef = useRef<HTMLTableRowElement>(null);
   const activeTickerRowRef = useRef<HTMLTableRowElement>(null);
@@ -187,6 +198,16 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
       .then((chains) => setWatchOptions(chains.find(c => c.ticker === selectedWatch) || null))
       .catch(() => setWatchOptions(null))
       .finally(() => setWatchOptionsLoading(false));
+  }, [selectedWatch, watchDetailTab]);
+
+  // Fetch technicals when selected ticker or tab changes
+  useEffect(() => {
+    if (!selectedWatch || watchDetailTab !== "technicals") { setWatchTechnicals(null); return; }
+    setWatchTechnicalsLoading(true);
+    getTechnicals([selectedWatch])
+      .then((signals) => setWatchTechnicals(signals.find(s => s.ticker === selectedWatch) || null))
+      .catch(() => setWatchTechnicals(null))
+      .finally(() => setWatchTechnicalsLoading(false));
   }, [selectedWatch, watchDetailTab]);
 
   // Auto-scroll options chain to current price divider
@@ -287,6 +308,79 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
       setError(err instanceof Error ? err.message : "Failed to load screener");
     } finally {
       setLoading(false);
+    }
+  }
+
+  // ── Signals scanner: pull tickers from equity screeners, run technicals, keep 5/6+ ──
+  const SIGNAL_SCREENER_IDS = [
+    "most_actives", "day_gainers", "day_losers", "most_shorted_stocks",
+    "bullish_stocks_right_now", "bearish_stocks_right_now", "upside_breakout_stocks_daily",
+    "undervalued_large_caps", "undervalued_growth_stocks", "strong_undervalued_stocks",
+  ];
+
+  async function scanSignals() {
+    setSignalLoading(true);
+    setSignalResults([]);
+    setSignalScanned(true);
+    try {
+      // Gather unique tickers from all equity screeners
+      const tickerSet = new Set<string>();
+      const fetches = SIGNAL_SCREENER_IDS.map(async (id) => {
+        try {
+          const results = await getDiscovery(id);
+          results.forEach((r) => tickerSet.add(r.ticker));
+        } catch { /* skip failing screener */ }
+      });
+      await Promise.all(fetches);
+
+      if (tickerSet.size === 0) {
+        setSignalResults([]);
+        return;
+      }
+
+      // Run technicals in chunks of 20 to avoid URL length issues
+      const allTickers = Array.from(tickerSet);
+      const chunkSize = 20;
+      const allSignals: EmaPullbackSignal[] = [];
+      for (let i = 0; i < allTickers.length; i += chunkSize) {
+        const chunk = allTickers.slice(i, i + chunkSize);
+        try {
+          const signals = await getTechnicals(chunk);
+          allSignals.push(...signals);
+        } catch { /* continue on error */ }
+      }
+
+      // Keep only 5/6 or 6/6 signals
+      const strong = allSignals.filter((s) => s.criteria_met >= 5);
+      strong.sort((a, b) => b.criteria_met - a.criteria_met || a.ticker.localeCompare(b.ticker));
+      setSignalResults(strong);
+
+      // Fetch health for signal tickers
+      if (strong.length > 0) {
+        getBatchData(strong.map((s) => s.ticker))
+          .then((batch) => {
+            setSignalHealth(batch.financials);
+            // Store current-period analyst trend per ticker
+            const analysts: Record<string, AnalystTrend> = {};
+            Object.entries(batch.analyst_trends).forEach(([ticker, trends]) => {
+              const current = trends.find(t => t.period === "0m") || trends[0];
+              if (current) analysts[ticker] = current;
+            });
+            setSignalAnalyst(analysts);
+          })
+          .catch(() => {});
+
+        // Fetch options chain counts
+        getOptionsChains(strong.map((s) => s.ticker))
+          .then((chains) => {
+            const counts: Record<string, number> = {};
+            chains.forEach((c) => { counts[c.ticker] = c.contracts.length; });
+            setSignalChains(counts);
+          })
+          .catch(() => {});
+      }
+    } finally {
+      setSignalLoading(false);
     }
   }
 
@@ -431,7 +525,6 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                   {sortField === "ticker" && <span className="text-[#58a6ff] text-[8px]">{sortDir === "asc" ? "▲" : "▼"}</span>}
                 </span>
               </th>
-              <th className="px-3 py-2.5 text-left th">Company</th>
               <th className="px-3 py-2.5 text-left th">Sector</th>
               <th
                 className="px-3 py-2.5 text-right th cursor-pointer select-none hover:text-[#c9d1d9] transition-colors"
@@ -492,8 +585,6 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                   )}
                   <td className={`px-3 py-2.5 ${rowBorder}`}>
                     <TickerLink ticker={item.ticker} className="font-bold text-[11px] text-[#58a6ff] tracking-wide uppercase hover:underline cursor-pointer" />
-                  </td>
-                  <td className={`px-3 py-2.5 ${rowBorder}`}>
                     <span className="text-[10px] text-[#8b949e] truncate max-w-[150px] block leading-tight">
                       {health?.name || item.name || "—"}
                     </span>
@@ -613,7 +704,212 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
           </svg>
           Search
         </button>
+        <button
+          onClick={() => { setLeftTab("signals"); if (!signalScanned) scanSignals(); }}
+          className={`tab-btn flex items-center gap-1.5 ${
+            leftTab === "signals"
+              ? "bg-[#30363d] text-[#c9d1d9]"
+              : "text-[#8b949e] hover:text-[#c9d1d9]"
+          }`}
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5" />
+          </svg>
+          Signals
+          {signalResults.length > 0 && (
+            <span className="text-[9px] bg-[#3fb950]/20 text-[#3fb950] px-1.5 py-0.5 rounded-full font-bold">{signalResults.length}</span>
+          )}
+        </button>
       </div>
+
+      {/* ── Signals Tab ── */}
+      {leftTab === "signals" && (
+        <div className="flex-1 rounded-lg border border-[#30363d] bg-[#0d1117] overflow-hidden flex flex-col shadow-sm min-h-0">
+          <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-[#161b22] to-[#0d1117] border-b border-[#30363d]">
+            <div className="flex items-center gap-2">
+              <svg className="w-4 h-4 text-[#3fb950]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5" />
+              </svg>
+              <div>
+                <h3 className="text-[11px] font-bold text-[#c9d1d9] uppercase tracking-wide">Wheel Signals</h3>
+                <p className="text-[9px] text-[#484f58]">Screener tickers with 5/6+ EMA pullback criteria</p>
+              </div>
+            </div>
+            <button
+              onClick={() => scanSignals()}
+              disabled={signalLoading}
+              className="text-[10px] px-3 py-1.5 rounded-md bg-[#21262d] border border-[#30363d] text-[#c9d1d9] hover:bg-[#30363d] disabled:opacity-50 transition font-medium"
+            >
+              {signalLoading ? "Scanning…" : "Rescan"}
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4">
+            {signalLoading ? (
+              <div className="flex flex-col items-center justify-center h-40 gap-3">
+                <div className="w-8 h-8 rounded-full border-2 border-[#30363d] border-t-[#3fb950] animate-spin" />
+                <p className="text-[10px] text-[#8b949e]">Scanning screeners for strong EMA pullback setups…</p>
+                <p className="text-[9px] text-[#484f58]">This may take a moment (analyzing ~200 tickers)</p>
+              </div>
+            ) : signalResults.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-40 text-center">
+                <svg className="w-8 h-8 text-[#30363d] mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5" />
+                </svg>
+                <p className="text-[10px] text-[#8b949e]">No strong signals found</p>
+                <p className="text-[9px] text-[#484f58] mt-0.5">No screener tickers currently meet 5/6 EMA pullback criteria</p>
+              </div>
+            ) : (
+              <table className="w-full text-[10px]">
+                <thead>
+                  <tr className="text-[9px] text-[#8b949e] uppercase tracking-widest border-b border-[#21262d]">
+                    <th className="text-center py-2 px-1.5 font-medium w-8">
+                      <svg className="w-3 h-3 text-[#8b949e] mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.562.562 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.562.562 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" />
+                      </svg>
+                    </th>
+                    <th className="text-left py-2 px-2 font-medium cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "ticker", dir: prev.field === "ticker" && prev.dir === "asc" ? "desc" : "asc" }))}>
+                      Ticker {signalSort.field === "ticker" ? (signalSort.dir === "asc" ? "▲" : "▼") : ""}
+                    </th>
+                    <th className="text-left py-2 px-2 font-medium">Signal</th>
+                    <th className="text-right py-2 px-2 font-medium cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "price", dir: prev.field === "price" && prev.dir === "asc" ? "desc" : "asc" }))}>
+                      Price {signalSort.field === "price" ? (signalSort.dir === "asc" ? "▲" : "▼") : ""}
+                    </th>
+                    <th className="text-center py-2 px-2 font-medium cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "health", dir: prev.field === "health" && prev.dir === "desc" ? "asc" : "desc" }))}>
+                      Health {signalSort.field === "health" ? (signalSort.dir === "asc" ? "▲" : "▼") : ""}
+                    </th>
+                    <th className="text-center py-2 px-2 font-medium cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "chains", dir: prev.field === "chains" && prev.dir === "desc" ? "asc" : "desc" }))}>
+                      Activity {signalSort.field === "chains" ? (signalSort.dir === "asc" ? "▲" : "▼") : ""}
+                    </th>
+                    <th className="text-center py-2 px-2 font-medium cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "analyst", dir: prev.field === "analyst" && prev.dir === "desc" ? "asc" : "desc" }))}>
+                      Analyst {signalSort.field === "analyst" ? (signalSort.dir === "asc" ? "▲" : "▼") : ""}
+                    </th>
+                    <th className="text-right py-2 px-2 font-medium">RSI</th>
+                    <th className="text-center py-2 px-2 font-medium">Strength</th>
+                    <th className="text-center py-2 px-2 font-medium">Volume</th>
+                    <th className="text-center py-2 px-2 font-medium">Candle</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...signalResults].sort((a, b) => {
+                    const dir = signalSort.dir === "asc" ? 1 : -1;
+                    if (signalSort.field === "ticker") return dir * a.ticker.localeCompare(b.ticker);
+                    if (signalSort.field === "health") return dir * ((signalHealth[a.ticker]?.health_score ?? 0) - (signalHealth[b.ticker]?.health_score ?? 0));
+                    if (signalSort.field === "chains") return dir * ((signalChains[a.ticker] ?? 0) - (signalChains[b.ticker] ?? 0));
+                    if (signalSort.field === "analyst") {
+                      const aBuys = signalAnalyst[a.ticker] ? signalAnalyst[a.ticker].strong_buy + signalAnalyst[a.ticker].buy : 0;
+                      const bBuys = signalAnalyst[b.ticker] ? signalAnalyst[b.ticker].strong_buy + signalAnalyst[b.ticker].buy : 0;
+                      return dir * (aBuys - bBuys);
+                    }
+                    return dir * (a.price - b.price);
+                  }).map((sig) => {
+                    const isCsp = sig.direction === "call";
+                    const hasShares = (positions[sig.ticker] || []).reduce((s, tx) => s + (tx.type === "buy" ? tx.quantity : -tx.quantity), 0) > 0;
+                    const ccDisabled = !isCsp && !hasShares;
+                    const isWatched = watchlist.includes(sig.ticker.toUpperCase());
+                    return (
+                      <tr key={sig.ticker} className="border-b border-[#161b22] hover:bg-[#161b22]/60 transition-colors">
+                        <td className="py-2.5 px-1.5 text-center w-8">
+                          <input
+                            type="checkbox"
+                            checked={isWatched}
+                            onChange={() => {
+                              if (isWatched) {
+                                removeFromWatchlist(sig.ticker);
+                              } else {
+                                addToWatchlist(sig.ticker);
+                              }
+                            }}
+                            className="w-3.5 h-3.5 rounded border-[#30363d] bg-[#0d1117] text-[#58a6ff] focus:ring-[#58a6ff] focus:ring-offset-0 cursor-pointer accent-[#58a6ff]"
+                          />
+                        </td>
+                        <td className="py-2.5 px-2">
+                          <TickerLink ticker={sig.ticker} />
+                        </td>
+                        <td className="py-2.5 px-2">
+                          {ccDisabled ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-medium bg-[#161b22] border border-[#30363d] text-[#6e7681]">
+                              CC — Not actionable
+                            </span>
+                          ) : (
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-bold ${isCsp ? "bg-[#d29922]/10 text-[#d29922]" : "bg-[#58a6ff]/10 text-[#58a6ff]"}`}>
+                              {isCsp ? "Sell CSP" : "Sell CC"}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-2 text-right text-[#c9d1d9] tabular-nums font-medium">${sig.price.toFixed(2)}</td>
+                        <td className="py-2.5 px-2 text-center">
+                          {signalHealth[sig.ticker] ? (
+                            <span className={`text-[10px] font-bold tabular-nums ${healthScoreColor(signalHealth[sig.ticker].health_score)}`}>
+                              {signalHealth[sig.ticker].health_score}
+                            </span>
+                          ) : (
+                            <span className="text-[#484f58]">—</span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-2 text-center">
+                          {signalChains[sig.ticker] != null ? (
+                            <span
+                              className={`inline-block w-2.5 h-2.5 rounded-full ${signalChains[sig.ticker] >= 50 ? "bg-[#3fb950]" : signalChains[sig.ticker] >= 20 ? "bg-[#d29922]" : "bg-[#f85149]"}`}
+                              title={`${signalChains[sig.ticker]} contracts`}
+                            />
+                          ) : (
+                            <span className="text-[#484f58]">—</span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-2 text-center">
+                          {signalAnalyst[sig.ticker] ? (() => {
+                            const a = signalAnalyst[sig.ticker];
+                            const total = a.strong_buy + a.buy + a.hold + a.sell + a.strong_sell;
+                            // Determine consensus label
+                            let label = "Hold";
+                            let color = "text-[#d29922]";
+                            if (total > 0) {
+                              const max = Math.max(a.strong_buy, a.buy, a.hold, a.sell, a.strong_sell);
+                              if (max === a.strong_buy) { label = "Strong Buy"; color = "text-[#3fb950]"; }
+                              else if (max === a.buy) { label = "Buy"; color = "text-[#56d364]"; }
+                              else if (max === a.hold) { label = "Hold"; color = "text-[#d29922]"; }
+                              else if (max === a.sell) { label = "Sell"; color = "text-[#f85149]"; }
+                              else if (max === a.strong_sell) { label = "Strong Sell"; color = "text-[#f85149]"; }
+                            }
+                            return (
+                              <span className={`text-[10px] font-bold ${color}`} title={`${a.strong_buy} Strong Buy, ${a.buy} Buy, ${a.hold} Hold, ${a.sell} Sell, ${a.strong_sell} Strong Sell`}>
+                                {label}
+                              </span>
+                            );
+                          })() : (
+                            <span className="text-[#484f58]">—</span>
+                          )}
+                        </td>
+                        <td className={`py-2.5 px-2 text-right tabular-nums font-medium ${sig.rsi > 70 ? "text-[#f85149]" : sig.rsi < 30 ? "text-[#3fb950]" : "text-[#c9d1d9]"}`}>{sig.rsi.toFixed(1)}</td>
+                        <td className="py-2.5 px-2 text-center">
+                          <span className={`inline-block px-2 py-0.5 rounded text-[9px] font-bold ${sig.criteria_met >= 6 ? "bg-[#3fb950]/15 text-[#3fb950]" : "bg-[#d29922]/15 text-[#d29922]"}`}>
+                            {sig.criteria_met}/6
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-2 text-center">
+                          {sig.volume_increasing ? (
+                            <span className="text-[#3fb950]">▲</span>
+                          ) : (
+                            <span className="text-[#484f58]">—</span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-2 text-center">
+                          {sig.candle_confirmed ? (
+                            <span className="text-[#3fb950]">✓</span>
+                          ) : (
+                            <span className="text-[#484f58]">✗</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Screeners Tab ── */}
       {leftTab === "screeners" && (
@@ -924,10 +1220,10 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                   </div>
                 </div>
               ) : (
-                <table className="w-full text-xs border-collapse table-fixed">
+                <table className="w-full text-xs border-collapse">
                   <thead className="sticky top-0 bg-[#161b22] z-10">
                     <tr>
-                      <td colSpan={13} className="px-3 py-2 border-b border-[#21262d]">
+                      <td colSpan={10} className="px-3 py-2 border-b border-[#21262d]">
                         <div className="flex items-center justify-between">
                           <span className="text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">Positions</span>
                           <div className="flex items-center gap-2">
@@ -956,35 +1252,38 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                       </td>
                     </tr>
                     <tr>
-                      <th className="w-7 px-1.5 py-2.5"></th>
-                      {(["ticker", "name", "sector", "health", "price"] as WatchSortField[]).map((field) => {
-                        const labels: Record<string, [string, string]> = { ticker: ["Ticker", "text-left"], name: ["Company", "text-left"], sector: ["Sector", "text-left"], health: ["Health", "text-center w-24"], price: ["Price", "text-right"] };
-                        const [label, align] = labels[field];
-                        return (
-                          <th key={field} className={`px-3 py-2.5 ${align} text-[9px] font-semibold uppercase tracking-wider cursor-pointer select-none hover:text-[#c9d1d9] transition-colors ${watchSortField === field ? "text-[#c9d1d9]" : "text-[#8b949e]"}`}
-                            onClick={() => { if (watchSortField === field) setWatchSortDir(d => d === "asc" ? "desc" : "asc"); else { setWatchSortField(field); setWatchSortDir("asc"); } }}
-                          >
-                            {label}{watchSortField === field ? (watchSortDir === "asc" ? " ▲" : " ▼") : ""}
-                          </th>
-                        );
-                      })}
-                      <th className="px-3 py-2.5 text-right text-[9px] font-semibold text-[#8b949e] uppercase tracking-wider">Low</th>
-                      <th className="px-3 py-2.5 text-right text-[9px] font-semibold text-[#8b949e] uppercase tracking-wider">High</th>
-                      <th className="px-3 py-2.5 text-left text-[9px] font-semibold text-[#8b949e] uppercase tracking-wider">Earnings</th>
-                      <th className={`px-3 py-2.5 text-left text-[9px] font-semibold uppercase tracking-wider cursor-pointer select-none hover:text-[#c9d1d9] transition-colors ${watchSortField === "analyst" ? "text-[#c9d1d9]" : "text-[#8b949e]"}`}
+                      <th className="w-6 px-1 py-2"></th>
+                      <th className="px-3 py-2 text-left text-[9px] font-semibold uppercase tracking-wider cursor-pointer select-none hover:text-[#c9d1d9] transition-colors whitespace-nowrap"
+                        onClick={() => { if (watchSortField === "ticker") setWatchSortDir(d => d === "asc" ? "desc" : "asc"); else { setWatchSortField("ticker"); setWatchSortDir("asc"); } }}
+                      >
+                        <span className={watchSortField === "ticker" ? "text-[#c9d1d9]" : "text-[#8b949e]"}>Ticker{watchSortField === "ticker" ? (watchSortDir === "asc" ? " ▲" : " ▼") : ""}</span>
+                      </th>
+                      <th className="px-3 py-2 text-left text-[9px] font-semibold uppercase tracking-wider cursor-pointer select-none hover:text-[#c9d1d9] transition-colors whitespace-nowrap"
+                        onClick={() => { if (watchSortField === "sector") setWatchSortDir(d => d === "asc" ? "desc" : "asc"); else { setWatchSortField("sector"); setWatchSortDir("asc"); } }}
+                      >
+                        <span className={watchSortField === "sector" ? "text-[#c9d1d9]" : "text-[#8b949e]"}>Sector{watchSortField === "sector" ? (watchSortDir === "asc" ? " ▲" : " ▼") : ""}</span>
+                      </th>
+                      <th className="px-3 py-2 text-center text-[9px] font-semibold uppercase tracking-wider cursor-pointer select-none hover:text-[#c9d1d9] transition-colors whitespace-nowrap w-20"
+                        onClick={() => { if (watchSortField === "health") setWatchSortDir(d => d === "asc" ? "desc" : "asc"); else { setWatchSortField("health"); setWatchSortDir("asc"); } }}
+                      >
+                        <span className={watchSortField === "health" ? "text-[#c9d1d9]" : "text-[#8b949e]"}>Health{watchSortField === "health" ? (watchSortDir === "asc" ? " ▲" : " ▼") : ""}</span>
+                      </th>
+                      <th className="px-3 py-2 text-right text-[9px] font-semibold uppercase tracking-wider cursor-pointer select-none hover:text-[#c9d1d9] transition-colors whitespace-nowrap"
+                        onClick={() => { if (watchSortField === "price") setWatchSortDir(d => d === "asc" ? "desc" : "asc"); else { setWatchSortField("price"); setWatchSortDir("asc"); } }}
+                      >
+                        <span className={watchSortField === "price" ? "text-[#c9d1d9]" : "text-[#8b949e]"}>Price{watchSortField === "price" ? (watchSortDir === "asc" ? " ▲" : " ▼") : ""}</span>
+                      </th>
+                      <th className="px-3 py-2 text-right text-[9px] font-semibold text-[#8b949e] uppercase tracking-wider whitespace-nowrap">Low</th>
+                      <th className="px-3 py-2 text-right text-[9px] font-semibold text-[#8b949e] uppercase tracking-wider whitespace-nowrap">High</th>
+                      <th className="px-3 py-2 text-left text-[9px] font-semibold text-[#8b949e] uppercase tracking-wider whitespace-nowrap">Earnings</th>
+                      <th className="px-3 py-2 text-left text-[9px] font-semibold uppercase tracking-wider cursor-pointer select-none hover:text-[#c9d1d9] transition-colors whitespace-nowrap"
                         onClick={() => { if (watchSortField === "analyst") setWatchSortDir(d => d === "asc" ? "desc" : "asc"); else { setWatchSortField("analyst"); setWatchSortDir("asc"); } }}
                       >
-                        Analyst{watchSortField === "analyst" ? (watchSortDir === "asc" ? " ▲" : " ▼") : ""}
+                        <span className={watchSortField === "analyst" ? "text-[#c9d1d9]" : "text-[#8b949e]"}>Analyst{watchSortField === "analyst" ? (watchSortDir === "asc" ? " ▲" : " ▼") : ""}</span>
                       </th>
-                      <th className="px-3 py-2.5 text-center text-[9px] font-semibold text-[#8b949e] uppercase tracking-wider">Contracts</th>
-                      <th className={`px-3 py-2.5 text-center text-[9px] font-semibold uppercase tracking-wider cursor-pointer select-none hover:text-[#c9d1d9] transition-colors ${watchSortField === "positions" ? "text-[#c9d1d9]" : "text-[#8b949e]"}`}
-                        onClick={() => { if (watchSortField === "positions") setWatchSortDir(d => d === "asc" ? "desc" : "asc"); else { setWatchSortField("positions"); setWatchSortDir("desc"); } }}
-                      >
-                        Shares{watchSortField === "positions" ? (watchSortDir === "asc" ? " ▲" : " ▼") : ""}
-                      </th>
-                      <th className="w-8 px-1.5 py-2.5"></th>
+                      <th className="w-7 px-1 py-2"></th>
                     </tr>
-                    <tr><td colSpan={13} className="h-px bg-[#30363d]"></td></tr>
+                    <tr><td colSpan={10} className="h-px bg-[#30363d]"></td></tr>
                   </thead>
                   <tbody>
                 {[...watchlist].sort((a, b) => {
@@ -1060,32 +1359,37 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                         onClick={() => setSelectedWatch(isActive ? null : t)}
                         className={`group cursor-pointer transition-all duration-100 ${isActive ? "bg-[#161b22]" : "hover:bg-[#161b22]/50"}`}
                       >
-                        <td className="px-1.5 py-3 text-center border-b border-[#21262d]/30">
+                        <td className="px-1 py-2.5 text-center border-b border-[#21262d]/30 w-6">
                           <svg className={`w-3 h-3 transition-transform duration-150 inline-block ${isActive ? "rotate-90 text-[#d29922]" : "text-[#30363d] group-hover:text-[#484f58]"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                           </svg>
                         </td>
                         {/* Ticker */}
-                        <td className="px-3 py-3 border-b border-[#21262d]/30">
-                          <span
-                            onClick={(e) => { e.stopPropagation(); openHealthPopup(t); }}
-                            className={`text-[11px] font-bold tracking-wide cursor-pointer hover:underline decoration-dotted underline-offset-2 ${isActive ? "text-[#d29922]" : "text-[#58a6ff]"}`}
-                          >{t}</span>
-                        </td>
-                        {/* Company */}
-                        <td className="px-3 py-3 border-b border-[#21262d]/30">
-                          <span className="text-[10px] text-[#8b949e] truncate block max-w-[140px]">{health?.name ?? "—"}</span>
+                        <td className="px-3 py-2.5 border-b border-[#21262d]/30">
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              onClick={(e) => { e.stopPropagation(); openHealthPopup(t); }}
+                              className={`text-[11px] font-bold tracking-wide cursor-pointer hover:underline decoration-dotted underline-offset-2 ${isActive ? "text-[#d29922]" : "text-[#58a6ff]"}`}
+                            >{t}</span>
+                            {netShares > 0 && (
+                              <span className="w-1.5 h-1.5 rounded-full bg-[#d29922] inline-block shrink-0" title={`${netShares} shares`} />
+                            )}
+                            {openOrders.length > 0 && (
+                              <span className="text-[8px] font-bold text-[#d29922] bg-[#d29922]/15 px-1 py-0.5 rounded leading-none shrink-0" title={`${openOrders.length} open contract${openOrders.length > 1 ? "s" : ""}`}>{openOrders.length}</span>
+                            )}
+                          </div>
+                          <span className="text-[9px] text-[#8b949e] truncate block max-w-[160px]">{health?.name ?? ""}</span>
                         </td>
                         {/* Sector */}
-                        <td className="px-3 py-3 border-b border-[#21262d]/30">
+                        <td className="px-3 py-2.5 border-b border-[#21262d]/30 whitespace-nowrap">
                           {health?.sector ? (
-                            <span className="text-[9px] text-[#8b949e] bg-[#21262d] px-1.5 py-0.5 rounded whitespace-nowrap">{health.sector}</span>
+                            <span className="text-[9px] text-[#8b949e] bg-[#21262d] px-1.5 py-0.5 rounded">{health.sector}</span>
                           ) : (
                             <span className="text-[10px] text-[#30363d]">—</span>
                           )}
                         </td>
                         {/* Health */}
-                        <td className="px-3 py-3 text-center border-b border-[#21262d]/30">
+                        <td className="px-3 py-2.5 text-center border-b border-[#21262d]/30">
                           {health ? (
                             <div className="inline-flex items-center gap-1.5">
                               <div className="w-10 h-1 rounded-full bg-[#21262d] overflow-hidden">
@@ -1106,11 +1410,11 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                           )}
                         </td>
                         {/* Price */}
-                        <td className="px-3 py-3 text-right border-b border-[#21262d]/30">
+                        <td className="px-3 py-2.5 text-right border-b border-[#21262d]/30 whitespace-nowrap">
                           <span className="text-[11px] text-[#f0f6fc] font-semibold tabular-nums">{md ? `$${md.price.toFixed(2)}` : "—"}</span>
                         </td>
                         {/* Low (52W + Day) */}
-                        <td className="px-3 py-3 text-right border-b border-[#21262d]/30">
+                        <td className="px-3 py-2.5 text-right border-b border-[#21262d]/30 whitespace-nowrap">
                           {md ? (
                             <div className="space-y-0.5">
                               <div className="text-[9px] tabular-nums leading-none"><span className="text-[#484f58] font-medium">52W</span> <span className="text-[#8b949e]">${md.week52_low.toFixed(2)}</span></div>
@@ -1119,7 +1423,7 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                           ) : <span className="text-[10px] text-[#30363d]">—</span>}
                         </td>
                         {/* High (52W + Day) */}
-                        <td className="px-3 py-3 text-right border-b border-[#21262d]/30">
+                        <td className="px-3 py-2.5 text-right border-b border-[#21262d]/30 whitespace-nowrap">
                           {md ? (
                             <div className="space-y-0.5">
                               <div className="text-[9px] tabular-nums leading-none"><span className="text-[#484f58] font-medium">52W</span> <span className="text-[#8b949e]">${md.week52_high.toFixed(2)}</span></div>
@@ -1128,7 +1432,7 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                           ) : <span className="text-[10px] text-[#30363d]">—</span>}
                         </td>
                         {/* Earnings */}
-                        <td className="px-3 py-3 border-b border-[#21262d]/30">
+                        <td className="px-3 py-2.5 border-b border-[#21262d]/30 whitespace-nowrap">
                           <div className="space-y-0.5">
                             {nextEarnings ? (
                               <div className="text-[9px] tabular-nums leading-none">
@@ -1151,29 +1455,13 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                           </div>
                         </td>
                         {/* Analyst */}
-                        <td className="px-3 py-3 border-b border-[#21262d]/30">
+                        <td className="px-3 py-2.5 border-b border-[#21262d]/30 whitespace-nowrap">
                           <span className={`text-[10px] font-semibold ${
                             consensus.includes("Buy") ? "text-[#3fb950]" : consensus === "Hold" ? "text-[#d29922]" : consensus.includes("Sell") ? "text-[#f85149]" : "text-[#30363d]"
                           }`}>{consensus}</span>
                         </td>
-                        {/* Open Contracts */}
-                        <td className="px-3 py-3 text-center border-b border-[#21262d]/30">
-                          {openOrders.length > 0 ? (
-                            <span className="text-[10px] font-semibold text-[#58a6ff]">{openOrders.length}</span>
-                          ) : (
-                            <span className="text-[10px] text-[#30363d]">—</span>
-                          )}
-                        </td>
-                        {/* Shares */}
-                        <td className="px-3 py-3 text-center border-b border-[#21262d]/30">
-                          {netShares > 0 ? (
-                            <span className="text-[10px] font-semibold text-[#c9d1d9]">{netShares}</span>
-                          ) : (
-                            <span className="text-[10px] text-[#30363d]">—</span>
-                          )}
-                        </td>
                         {/* Remove */}
-                        <td className="px-1.5 py-3 text-center border-b border-[#21262d]/30">
+                        <td className="px-1 py-2.5 text-center border-b border-[#21262d]/30 w-7">
                           <button
                             onClick={(e) => { e.stopPropagation(); removeFromWatchlist(t); }}
                             className="opacity-0 group-hover:opacity-100 text-[#30363d] hover:text-[#f85149] transition-all duration-150 p-0.5 rounded"
@@ -1187,17 +1475,18 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                       </tr>
                       {/* Expanded detail panel */}
                       {isActive && (
-                        <tr><td colSpan={13} className="p-0 border-b border-[#30363d]">
+                        <tr><td colSpan={10} className="p-0 border-b border-[#30363d]">
                         <div className="bg-[#0d1117]/95 backdrop-blur-sm">
 
                 {/* Detail sub-tabs — underline style */}
                 <div className="flex items-center gap-0 px-4 pt-3 pb-0 border-b border-[#21262d] bg-[#161b22]/50 overflow-x-auto">
-                  {(["position", "option", "order"] as const).map((tab) => {
-                    const label = { position: "Position", option: "Options", order: "Contracts" }[tab];
+                  {(["position", "option", "order", "technicals"] as const).map((tab) => {
+                    const label = { position: "Position", option: "Options", order: "Contracts", technicals: "Technicals" }[tab];
                     const icon = {
                       position: <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" /></svg>,
                       option: <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 0 0 6 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0 1 18 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5" /></svg>,
                       order: <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15a2.25 2.25 0 0 1 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25Z" /></svg>,
+                      technicals: <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" /></svg>,
                     }[tab];
                     const isTabActive = watchDetailTab === tab;
                     return (
@@ -1573,7 +1862,7 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                                           if (i === priceIdx) {
                                             rows.push(
                                               <tr key="price-divider" ref={optionsPriceDividerRef}>
-                                                <td colSpan={13} className="h-0 p-0 relative">
+                                                <td colSpan={10} className="h-0 p-0 relative">
                                                   <div className="absolute inset-x-0 top-1/2 border-t border-dashed border-[#d29922]/40"></div>
                                                   <div className="absolute left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[#0d1117] px-2 py-0.5 rounded-full border border-[#d29922]/30 text-[9px] font-bold text-[#d29922] tabular-nums whitespace-nowrap">
                                                     ${price.toFixed(2)}
@@ -1628,7 +1917,7 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                                         })}
                                         {priceIdx === allStrikes.length && (
                                           <tr>
-                                            <td colSpan={13} className="h-0 p-0 relative">
+                                            <td colSpan={10} className="h-0 p-0 relative">
                                               <div className="absolute inset-x-0 top-1/2 border-t border-dashed border-[#d29922]/40"></div>
                                               <div className="absolute left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[#0d1117] px-2 py-0.5 rounded-full border border-[#d29922]/30 text-[9px] font-bold text-[#d29922] tabular-nums whitespace-nowrap">
                                                 ${watchOptions.underlying_price.toFixed(2)}
@@ -1766,6 +2055,7 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                                             <th className="px-2 py-1.5 text-right font-medium">IV</th>
                                             <th className="px-2 py-1.5 text-right font-medium">ROC</th>
                                             <th className="px-2 py-1.5 text-right font-medium">Quality</th>
+                                            <th className="px-2 py-1.5 text-right font-medium">Trend</th>
                                             <th className="px-2 py-1.5 text-right font-medium">OI</th>
                                             <th className="w-8 px-1 py-1.5"></th>
                                           </tr>
@@ -1805,6 +2095,13 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                                                   <span className={`inline-block w-10 text-center px-1 py-0.5 rounded text-[9px] font-bold ${r.quality_score >= 70 ? "bg-[#3fb950]/15 text-[#3fb950]" : r.quality_score >= 40 ? "bg-[#d29922]/15 text-[#d29922]" : "bg-[#21262d] text-[#484f58]"}`}>
                                                     {r.quality_score.toFixed(0)}
                                                   </span>
+                                                </td>
+                                                <td className="px-2 py-1.5 text-right">
+                                                  {r.trend_signal ? (
+                                                    <span className={`text-[8px] font-medium px-1 py-0.5 rounded-full ${(r.trend_score ?? 0) > 2 ? "bg-[#3fb950]/10 text-[#3fb950]" : (r.trend_score ?? 0) < -2 ? "bg-[#f85149]/10 text-[#f85149]" : "bg-[#21262d] text-[#484f58]"}`} title={r.trend_signal}>
+                                                      {(r.trend_score ?? 0) > 0 ? "▲" : (r.trend_score ?? 0) < 0 ? "▼" : "—"}
+                                                    </span>
+                                                  ) : <span className="text-[9px] text-[#30363d]">—</span>}
                                                 </td>
                                                 <td className="px-2 py-1.5 text-right text-[#484f58] tabular-nums">{r.contract.open_interest.toLocaleString()}</td>
                                                 <td className="px-1 py-1.5 text-center">
@@ -1847,6 +2144,13 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                                                   <span className={`inline-block w-10 text-center px-1 py-0.5 rounded text-[9px] font-bold ${r.quality_score >= 70 ? "bg-[#3fb950]/15 text-[#3fb950]" : r.quality_score >= 40 ? "bg-[#d29922]/15 text-[#d29922]" : "bg-[#21262d] text-[#484f58]"}`}>
                                                     {r.quality_score.toFixed(0)}
                                                   </span>
+                                                </td>
+                                                <td className="px-2 py-1.5 text-right">
+                                                  {r.trend_signal ? (
+                                                    <span className={`text-[8px] font-medium px-1 py-0.5 rounded-full ${(r.trend_score ?? 0) > 2 ? "bg-[#3fb950]/10 text-[#3fb950]" : (r.trend_score ?? 0) < -2 ? "bg-[#f85149]/10 text-[#f85149]" : "bg-[#21262d] text-[#484f58]"}`} title={r.trend_signal}>
+                                                      {(r.trend_score ?? 0) > 0 ? "▲" : (r.trend_score ?? 0) < 0 ? "▼" : "—"}
+                                                    </span>
+                                                  ) : <span className="text-[9px] text-[#30363d]">—</span>}
                                                 </td>
                                                 <td className="px-2 py-1.5 text-right text-[#484f58] tabular-nums">{r.contract.open_interest.toLocaleString()}</td>
                                                 <td className="px-1 py-1.5 text-center">
@@ -1968,6 +2272,157 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                             </table>
                           </div>
                         )}
+                      </div>
+                    );
+                  })()}
+
+                  {/* ── Technicals tab ── */}
+                  {watchDetailTab === "technicals" && (() => {
+                    if (watchTechnicalsLoading) {
+                      return (
+                        <div className="flex items-center justify-center h-40">
+                          <div className="animate-spin w-5 h-5 border-2 border-[#30363d] border-t-[#58a6ff] rounded-full" />
+                        </div>
+                      );
+                    }
+                    if (!watchTechnicals) {
+                      return (
+                        <div className="flex flex-col items-center justify-center h-40 text-center">
+                          <svg className="w-6 h-6 text-[#484f58] mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
+                          </svg>
+                          <p className="text-[10px] text-[#484f58]">No trend signal detected</p>
+                          <p className="text-[9px] text-[#30363d] mt-1">Insufficient criteria for a wheel-favorable setup</p>
+                        </div>
+                      );
+                    }
+                    const sig = watchTechnicals;
+                    const isCall = sig.direction === "call";
+                    // Wheel-oriented: bullish = CSP favorable, bearish = CC favorable
+                    const wheelAction = isCall ? "Sell CSP" : "Sell CC";
+                    const wheelDesc = isCall ? "CSP-Favorable — Uptrend Pullback to Support" : "CC-Favorable — Downtrend Retrace to Resistance";
+                    const wheelColor = isCall ? "text-[#d29922]" : "text-[#58a6ff]";
+                    const wheelBg = isCall ? "bg-[#d29922]/10 border-[#d29922]/30" : "bg-[#58a6ff]/10 border-[#58a6ff]/30";
+                    const strengthPct = (sig.criteria_met / 6) * 100;
+                    const strengthColor = sig.criteria_met >= 5 ? "bg-[#3fb950]" : sig.criteria_met >= 3 ? "bg-[#d29922]" : "bg-[#f85149]";
+
+                    return (
+                      <div className="space-y-4">
+                        {/* Signal header */}
+                        <div className={`flex items-center gap-3 p-3 rounded-lg border ${wheelBg}`}>
+                          <div className={`text-sm font-black ${wheelColor}`}>
+                            {wheelAction}
+                          </div>
+                          <div className="flex-1">
+                            <div className="text-[11px] text-[#c9d1d9] font-semibold">
+                              {wheelDesc}
+                            </div>
+                            <div className="text-[10px] text-[#8b949e] mt-0.5">
+                              {sig.criteria_met}/6 criteria met
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-[11px] text-[#c9d1d9] font-bold tabular-nums">${sig.price.toFixed(2)}</div>
+                            <div className="text-[9px] text-[#8b949e]">Current Price</div>
+                          </div>
+                        </div>
+
+                        {/* Wheel context explanation */}
+                        <div className={`px-3 py-2 rounded-lg border ${isCall ? "bg-[#3fb950]/5 border-[#3fb950]/20" : "bg-[#f85149]/5 border-[#f85149]/20"}`}>
+                          <p className="text-[10px] text-[#c9d1d9] leading-relaxed">
+                            {isCall
+                              ? "Stock is in an uptrend pulling back to EMA support. Selling puts here means if assigned, you buy at a strong support level. Low risk of the stock continuing down through your strike."
+                              : "Stock is in a downtrend retracing to EMA resistance. Selling covered calls here means the stock is unlikely to rally through your strike. Maximises premium capture with low assignment risk."}
+                          </p>
+                        </div>
+
+                        {/* Strength bar */}
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[9px] text-[#8b949e] uppercase tracking-widest font-medium">Signal Strength</span>
+                            <span className="text-[10px] text-[#c9d1d9] font-bold tabular-nums">{sig.criteria_met}/6</span>
+                          </div>
+                          <div className="h-1.5 bg-[#21262d] rounded-full overflow-hidden">
+                            <div className={`h-full rounded-full transition-all ${strengthColor}`} style={{ width: `${strengthPct}%` }} />
+                          </div>
+                        </div>
+
+                        {/* Indicators grid */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-2.5">
+                            <div className="text-[9px] text-[#8b949e] uppercase tracking-widest mb-1">50-DMA</div>
+                            <div className="text-[12px] text-[#c9d1d9] font-bold tabular-nums">${sig.dma_50.toFixed(2)}</div>
+                            <div className={`text-[9px] mt-0.5 ${sig.dma_slope > 0 ? "text-[#3fb950]" : "text-[#f85149]"}`}>
+                              {sig.dma_slope > 0 ? "▲" : "▼"} Slope {sig.dma_slope > 0 ? "+" : ""}{sig.dma_slope.toFixed(3)}/day
+                            </div>
+                          </div>
+                          <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-2.5">
+                            <div className="text-[9px] text-[#8b949e] uppercase tracking-widest mb-1">RSI (14)</div>
+                            <div className={`text-[12px] font-bold tabular-nums ${sig.rsi > 70 ? "text-[#f85149]" : sig.rsi < 30 ? "text-[#3fb950]" : "text-[#c9d1d9]"}`}>{sig.rsi.toFixed(1)}</div>
+                            <div className="text-[9px] text-[#8b949e] mt-0.5">
+                              {sig.rsi > 70 ? "Overbought — avoid CSPs" : sig.rsi < 30 ? "Oversold — CSP opportunity" : sig.rsi > 50 ? "Favors selling puts" : "Favors selling calls"}
+                            </div>
+                          </div>
+                          <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-2.5">
+                            <div className="text-[9px] text-[#8b949e] uppercase tracking-widest mb-1">9 EMA / 21 EMA</div>
+                            <div className="text-[12px] text-[#c9d1d9] font-bold tabular-nums">${sig.ema_9.toFixed(2)} / ${sig.ema_21.toFixed(2)}</div>
+                            <div className="text-[9px] text-[#8b949e] mt-0.5">
+                              {sig.ema_9 > sig.ema_21 ? "9 above 21 — CSP-favorable" : "9 below 21 — CC-favorable"}
+                            </div>
+                          </div>
+                          <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-2.5">
+                            <div className="text-[9px] text-[#8b949e] uppercase tracking-widest mb-1">Volume</div>
+                            <div className={`text-[12px] font-bold ${sig.volume_increasing ? "text-[#3fb950]" : "text-[#8b949e]"}`}>
+                              {sig.volume_increasing ? "Increasing ▲" : "Not increasing"}
+                            </div>
+                            <div className="text-[9px] text-[#8b949e] mt-0.5">
+                              {sig.volume_increasing ? "Confirms momentum" : "Weak confirmation"}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Criteria checklist */}
+                        <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-3">
+                          <div className="text-[9px] text-[#8b949e] uppercase tracking-widest font-medium mb-2">Criteria Checklist</div>
+                          <div className="space-y-1.5">
+                            {sig.notes.map((note, i) => {
+                              const isPassed = !note.toLowerCase().includes("not ") && !note.toLowerCase().includes("no ") && !note.includes("< 50") && !note.includes("> 50") ? 
+                                (isCall ? !note.includes("< 50") : !note.includes("> 50")) : false;
+                              // Simple heuristic: if it starts with "Price above/below" or contains positive language, it's a pass
+                              const isPositive = note.startsWith("Price above") || note.startsWith("Price below") ||
+                                note.includes("sloping up") || note.includes("sloping down") ||
+                                note.includes("Pullback to") || note.includes("Retrace to") ||
+                                note.includes("Bounce candle confirmed") || note.includes("Rejection candle confirmed") ||
+                                (isCall ? note.includes("RSI") && note.includes("> 50") : note.includes("RSI") && note.includes("< 50")) ||
+                                note === "Volume increasing";
+                              return (
+                                <div key={i} className="flex items-start gap-2">
+                                  <span className={`shrink-0 mt-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center text-[8px] font-bold ${isPositive ? "bg-[#3fb950]/20 text-[#3fb950]" : "bg-[#f85149]/15 text-[#f85149]"}`}>
+                                    {isPositive ? "✓" : "✗"}
+                                  </span>
+                                  <span className="text-[10px] text-[#c9d1d9]">{note}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Candle confirmation */}
+                        <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${sig.candle_confirmed ? "bg-[#3fb950]/5 border-[#3fb950]/20" : "bg-[#21262d] border-[#30363d]"}`}>
+                          <span className={`text-[10px] font-medium ${sig.candle_confirmed ? "text-[#3fb950]" : "text-[#8b949e]"}`}>
+                            {isCall ? "Bounce" : "Rejection"} Candle: {sig.candle_confirmed ? "Confirmed ✓" : "Not confirmed"}
+                          </span>
+                        </div>
+
+                        {/* Exit condition — reframed for wheel */}
+                        <div className="bg-[#d29922]/5 border border-[#d29922]/20 rounded-lg p-3">
+                          <div className="text-[9px] text-[#d29922] uppercase tracking-widest font-medium mb-1">When to Avoid This Trade</div>
+                          <p className="text-[10px] text-[#c9d1d9] leading-relaxed">
+                            {isCall
+                              ? `Don't sell CSPs if price loses the 9/21 EMA ($${sig.ema_9.toFixed(2)}/$${sig.ema_21.toFixed(2)}) — the uptrend support has failed and puts become risky.`
+                              : `Don't sell CCs if price reclaims the 9/21 EMA ($${sig.ema_9.toFixed(2)}/$${sig.ema_21.toFixed(2)}) — the stock may be reversing upward and you risk assignment.`}
+                          </p>
+                        </div>
                       </div>
                     );
                   })()}

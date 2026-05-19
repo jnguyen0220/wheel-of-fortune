@@ -75,6 +75,10 @@ export interface WheelRecommendation {
   contracts_allocated: number;
   /** True when the contract's DTE spans past a nearby earnings date. */
   earnings_warning?: boolean;
+  /** Trend alignment score (-10 to +10). Positive = trend supports this trade. */
+  trend_score?: number;
+  /** Brief trend signal label. */
+  trend_signal?: string;
 }
 
 export interface RecommendationResponse {
@@ -223,4 +227,24 @@ export interface OptionsOrder {
   created_at: string;
   close_premium?: number;
   closed_at?: string;
+}
+
+// ── Technical analysis types ──────────────────────────────────────────────────
+
+export type SignalDirection = "call" | "put";
+
+export interface EmaPullbackSignal {
+  ticker: string;
+  direction: SignalDirection;
+  price: number;
+  dma_50: number;
+  ema_9: number;
+  ema_21: number;
+  rsi: number;
+  volume_increasing: boolean;
+  candle_confirmed: boolean;
+  dma_slope: number;
+  criteria_met: number;
+  notes: string[];
+  exit_condition: string;
 }

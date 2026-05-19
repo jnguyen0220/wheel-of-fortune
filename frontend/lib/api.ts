@@ -117,37 +117,6 @@ export async function getRecommendations(
   });
 }
 
-// ── Earnings API ─────────────────────────────────────────────────────────────
-
-export async function getEarningsCalendar(
-  tickers: string[],
-): Promise<Record<string, EarningsCalendar[]>> {
-  const params = tickers.join(",");
-  return apiFetch<Record<string, EarningsCalendar[]>>(
-    `/api/earnings/calendar?tickers=${encodeURIComponent(params)}`,
-  );
-}
-
-export async function getEarningsHistory(
-  tickers: string[],
-): Promise<Record<string, EarningsResult[]>> {
-  const params = tickers.join(",");
-  return apiFetch<Record<string, EarningsResult[]>>(
-    `/api/earnings/history?tickers=${encodeURIComponent(params)}`,
-  );
-}
-
-// ── Analyst Trends API ───────────────────────────────────────────────────────
-
-export async function getAnalystTrends(
-  tickers: string[],
-): Promise<Record<string, AnalystTrend[]>> {
-  const params = tickers.join(",");
-  return apiFetch<Record<string, AnalystTrend[]>>(
-    `/api/analyst-trends?tickers=${encodeURIComponent(params)}`,
-  );
-}
-
 // ── Options Chain API ────────────────────────────────────────────────────────
 
 export async function getOptionsChains(
@@ -159,18 +128,7 @@ export async function getOptionsChains(
   );
 }
 
-// ── Financial Health API ─────────────────────────────────────────────────────
-
-export async function getFinancialHealth(
-  tickers: string[],
-): Promise<Record<string, FinancialHealth>> {
-  const params = tickers.join(",");
-  return apiFetch<Record<string, FinancialHealth>>(
-    `/api/financials?tickers=${encodeURIComponent(params)}`,
-  );
-}
-
-// ── Batch API ────────────────────────────────────────────────────────────────
+// ── Search & News ────────────────────────────────────────────────────────────
 
 export async function searchTickers(query: string): Promise<SearchResult[]> {
   return apiFetch<SearchResult[]>(`/api/search?q=${encodeURIComponent(query)}`);
@@ -185,7 +143,7 @@ export async function getNews(tickers?: string[]): Promise<NewsItem[]> {
   return apiFetch<NewsItem[]>(`/api/news${qs ? `?${qs}` : ""}`);
 }
 
-interface BatchResponse {
+export interface BatchResponse {
   market_data: Record<string, StockMarketData>;
   earnings_calendar: Record<string, EarningsCalendar[]>;
   earnings_history: Record<string, EarningsResult[]>;
@@ -212,4 +170,17 @@ export async function getDiscovery(screenerId: string): Promise<DiscoveryItem[]>
 
 export async function prefetchDiscovery(): Promise<void> {
   await apiFetch<unknown>(`/api/discovery/prefetch`);
+}
+
+// ── Technicals API ───────────────────────────────────────────────────────────
+
+import type { EmaPullbackSignal } from "./types";
+
+export async function getTechnicals(
+  tickers: string[],
+): Promise<EmaPullbackSignal[]> {
+  const params = tickers.join(",");
+  return apiFetch<EmaPullbackSignal[]>(
+    `/api/technicals?tickers=${encodeURIComponent(params)}`,
+  );
 }

@@ -16,7 +16,73 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::models::{EarningsCalendar, OptionsChain, OptionsContract, OptionType, StockHolding};
+use crate::models::{Candle, EarningsCalendar, OptionsChain, OptionsContract, OptionType, StockHolding};
+use crate::strategy::ema_pullback::{self, EmaPullbackSignal, SignalDirection};
+
+/// Trend context: pre-computed EMA pullback signals per ticker.
+/// Passed into `evaluate_wheel` to adjust quality scores.
+#[derive(Debug, Clone, Default)]
+pub struct TrendContext {
+    pub signals: std::collections::HashMap<String, EmaPullbackSignal>,
+}
+
+impl TrendContext {
+    /// Build trend context from chart candle data for each ticker.
+    pub fn from_candles(candles_by_ticker: &std::collections::HashMap<String, Vec<Candle>>) -> Self {
+        let mut signals = std::collections::HashMap::new();
+        for (ticker, candles) in candles_by_ticker {
+            if let Some(sig) = ema_pullback::analyse(ticker, candles) {
+                signals.insert(ticker.to_uppercase(), sig);
+            }
+        }
+        Self { signals }
+    }
+
+    /// Get trend adjustment for a wheel leg on a ticker.
+    /// Returns a score from -10 to +10.
+    ///
+    /// For CSPs (selling puts): bullish signals are favorable (positive score).
+    /// For CCs (selling calls): bearish/neutral signals are favorable (positive score).
+    pub fn adjustment(&self, ticker: &str, leg: &WheelLeg) -> (f64, String) {
+        let key = ticker.to_uppercase();
+        match self.signals.get(&key) {
+            None => (0.0, "No trend data".to_string()),
+            Some(sig) => {
+                let strength = sig.criteria_met as f64;
+                match (leg, &sig.direction) {
+                    // CSP + bullish trend = good (selling puts into uptrend support)
+                    (WheelLeg::CashSecuredPut, SignalDirection::Call) => {
+                        let score = (strength - 2.0).clamp(0.0, 4.0) * 2.5; // 0 to +10
+                        let label = format!("Bullish pullback {}/6 — trend supports CSP", sig.criteria_met);
+                        (score, label)
+                    }
+                    // CSP + bearish trend = risky (selling puts into downtrend)
+                    (WheelLeg::CashSecuredPut, SignalDirection::Put) => {
+                        let score = -(strength - 2.0).clamp(0.0, 4.0) * 2.5; // 0 to -10
+                        let label = format!("Bearish retrace {}/6 — trend opposes CSP", sig.criteria_met);
+                        (score, label)
+                    }
+                    // CC + bearish/stalling = good (stock unlikely to run past strike)
+                    (WheelLeg::CoveredCall, SignalDirection::Put) => {
+                        let score = (strength - 2.0).clamp(0.0, 4.0) * 2.5; // 0 to +10
+                        let label = format!("Bearish retrace {}/6 — trend supports CC", sig.criteria_met);
+                        (score, label)
+                    }
+                    // CC + strong bullish = risky (stock may run past strike)
+                    (WheelLeg::CoveredCall, SignalDirection::Call) => {
+                        let score = -(strength - 3.0).clamp(0.0, 3.0) * 2.0; // 0 to -6
+                        let label = if score < -1.0 {
+                            format!("Bullish pullback {}/6 — risk of assignment", sig.criteria_met)
+                        } else {
+                            format!("Bullish pullback {}/6 — moderate", sig.criteria_met)
+                        };
+                        (score, label)
+                    }
+                }
+            }
+        }
+    }
+}
 
 /// Warn when a contract's DTE spans past an earnings date within this window.
 const EARNINGS_WARNING_DAYS: i64 = 14;
@@ -75,6 +141,12 @@ pub struct WheelRecommendation {
     /// True when the contract's DTE spans past a nearby earnings date.
     #[serde(default)]
     pub earnings_warning: bool,
+    /// Trend alignment score (-10 to +10). Positive = trend supports this trade.
+    #[serde(default)]
+    pub trend_score: f64,
+    /// Brief trend signal label (e.g. "Bullish pullback 4/6" or "No signal").
+    #[serde(default)]
+    pub trend_signal: String,
 }
 
 // ── Engine ────────────────────────────────────────────────────────────────────
@@ -95,6 +167,7 @@ pub fn evaluate_wheel(
     earnings: &[EarningsCalendar],
     filters: &FilterParams,
     portfolio_ctx: Option<&PortfolioContext>,
+    trend_ctx: Option<&TrendContext>,
 ) -> Vec<WheelRecommendation> {
     let mut recommendations: Vec<WheelRecommendation> = Vec::new();
 
@@ -197,6 +270,10 @@ pub fn evaluate_wheel(
             for (idx, (contract, n_contracts)) in tiers.iter().zip(allocations.iter()).enumerate() {
                 let roc = contract.cc_return_on_capital();
                 let score = compute_quality_score(contract, roc);
+                let (trend_adj, trend_label) = trend_ctx
+                    .map(|tc| tc.adjustment(&chain.ticker, &WheelLeg::CoveredCall))
+                    .unwrap_or((0.0, "No trend data".to_string()));
+                let adjusted_score = (score + trend_adj).clamp(0.0, 110.0);
                 let other_tiers: Vec<String> = tiers.iter().zip(allocations.iter()).enumerate()
                     .filter(|(i, _)| *i != idx)
                     .map(|(_, (c, n))| format!("{}× ${:.0}", n, c.strike))
@@ -208,11 +285,13 @@ pub fn evaluate_wheel(
                     leg: WheelLeg::CoveredCall,
                     contract: (*contract).clone(),
                     annualised_roc: roc,
-                    quality_score: score,
+                    quality_score: adjusted_score,
                     rationale,
                     shares_held,
                     contracts_allocated: *n_contracts as u32,
                     earnings_warning: has_earnings_risk(&chain.ticker, contract.dte),
+                    trend_score: trend_adj,
+                    trend_signal: trend_label.clone(),
                 });
             }
         }
@@ -506,16 +585,22 @@ pub fn evaluate_wheel(
             let roc = entry.contract.csp_return_on_capital();
             let score = compute_quality_score(&entry.contract, roc)
                 * if pos == 0 { 1.0 } else { 0.97_f64.powi(pos as i32) };
+            let (trend_adj, trend_label) = trend_ctx
+                .map(|tc| tc.adjustment(&entry.ticker, &WheelLeg::CashSecuredPut))
+                .unwrap_or((0.0, "No trend data".to_string()));
+            let adjusted_score = (score + trend_adj).clamp(0.0, 110.0);
             recommendations.push(WheelRecommendation {
                 ticker: entry.ticker.clone(),
                 leg: WheelLeg::CashSecuredPut,
                 contract: entry.contract.clone(),
                 annualised_roc: roc,
-                quality_score: score,
+                quality_score: adjusted_score,
                 rationale: make_rationale(entry, Some(label.as_str()), *n),
                 shares_held: entry.shares_held,
                 contracts_allocated: *n,
                 earnings_warning: has_earnings_risk(&entry.ticker, entry.contract.dte),
+                trend_score: trend_adj,
+                trend_signal: trend_label,
             });
         }
 
@@ -567,6 +652,16 @@ pub fn evaluate_wheel(
                 shares_held: entry.shares_held,
                 contracts_allocated: n,
                 earnings_warning: has_earnings_risk(&entry.ticker, entry.contract.dte),
+                trend_score: {
+                    trend_ctx
+                        .map(|tc| tc.adjustment(&entry.ticker, &WheelLeg::CashSecuredPut).0)
+                        .unwrap_or(0.0)
+                },
+                trend_signal: {
+                    trend_ctx
+                        .map(|tc| tc.adjustment(&entry.ticker, &WheelLeg::CashSecuredPut).1)
+                        .unwrap_or_else(|| "No trend data".to_string())
+                },
             });
             *count += 1;
             alt_emitted += 1;
