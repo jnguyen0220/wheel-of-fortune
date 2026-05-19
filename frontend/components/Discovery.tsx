@@ -1,15 +1,16 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
-import type { DiscoveryItem, FinancialHealth, AnalystTrend, SearchResult, StockMarketData, OptionsChain, EarningsCalendar, EarningsResult, NewsItem, WheelRecommendation, PositionTransaction, OptionsOrder } from "@/lib/types";
-import { getDiscovery, getBatchData, prefetchDiscovery, searchTickers, getOptionsChains, getMarketData, getEarningsCalendar, getEarningsHistory, getNews, getRecommendations } from "@/lib/api";
-import { healthScoreColor, healthScoreBadgeColor, verdictBadgeColor } from "@/lib/format";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import type { DiscoveryItem, FinancialHealth, AnalystTrend, SearchResult, StockMarketData, OptionsChain, EarningsCalendar, EarningsResult, WheelRecommendation, PositionTransaction, OptionsOrder } from "@/lib/types";
+import { getDiscovery, getBatchData, prefetchDiscovery, searchTickers, getOptionsChains, getMarketData, getEarningsCalendar, getEarningsHistory, getRecommendations } from "@/lib/api";
+import { healthScoreColor } from "@/lib/format";
 import { useLocalStorageState } from "@/lib/hooks";
 import TickerLink from "./TickerLink";
 import CloseContractModal from "./CloseContractModal";
-import { SummaryTab, FinancialsTab } from "./HealthPopupContext";
+import { useHealthPopup } from "./HealthPopupContext";
 
 type SortField = "rank" | "ticker" | "price" | "health" | "rating";
+type WatchSortField = "ticker" | "price" | "health" | "name" | "sector" | "analyst" | "positions";
 type SortDir = "asc" | "desc";
 
 interface DiscoveryProps {
@@ -86,6 +87,7 @@ const SCREENER_CATEGORIES: ScreenerCategory[] = [
 const SCREENERS: ScreenerDef[] = SCREENER_CATEGORIES.flatMap((c) => c.screeners);
 
 export default function Discovery({ existingTickers = [], onAddTicker, onRemoveTicker }: DiscoveryProps) {
+  const { openHealthPopup } = useHealthPopup();
   const [activeScreener, setActiveScreener] = useState<string | null>(null);
   const [items, setItems] = useState<DiscoveryItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -106,7 +108,10 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
   const [watchlist, setWatchlist] = useLocalStorageState<string[]>("watchlist", []);
   const [watchInput, setWatchInput] = useState("");
   const [selectedWatch, setSelectedWatch] = useState<string | null>(null);
-  const [watchDetailTab, setWatchDetailTab] = useState<"summary" | "financials" | "research" | "position" | "option" | "order">("summary");
+  const [watchSortField, setWatchSortField] = useState<WatchSortField>("ticker");
+  const [watchSortDir, setWatchSortDir] = useState<SortDir>("asc");
+  const [watchRefreshKey, setWatchRefreshKey] = useState(0);
+  const [watchDetailTab, setWatchDetailTab] = useState<"position" | "option" | "order">("position");
   const [watchBatch, setWatchBatch] = useState<{
     financials: Record<string, FinancialHealth>;
     analyst_trends: Record<string, AnalystTrend[]>;
@@ -122,8 +127,8 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
   const [watchRecsLoading, setWatchRecsLoading] = useState(false);
   const optionsChainRef = useRef<HTMLDivElement>(null);
   const optionsPriceDividerRef = useRef<HTMLTableRowElement>(null);
-  const [watchNews, setWatchNews] = useState<NewsItem[]>([]);
-  const [researchCollapsed, setResearchCollapsed] = useState<Record<string, boolean>>({});
+  const activeTickerRowRef = useRef<HTMLTableRowElement>(null);
+
   const [positions, setPositions] = useLocalStorageState<Record<string, PositionTransaction[]>>("wof-positions", {});
   const [orders, setOrders] = useLocalStorageState<OptionsOrder[]>("wof-orders", []);
   const [closingOrder, setClosingOrder] = useState<OptionsOrder | null>(null);
@@ -161,14 +166,17 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
         earnings_history: b.earnings_history,
       }))
       .catch(() => {});
-  }, [watchlist]);
+  }, [watchlist, watchRefreshKey]);
 
-  // Fetch news for selected watchlist ticker
+
+
+  // Scroll to active ticker row when expanded
   useEffect(() => {
-    if (!selectedWatch) { setWatchNews([]); return; }
-    getNews([selectedWatch])
-      .then((news) => setWatchNews(news.filter(n => n.ticker === selectedWatch)))
-      .catch(() => setWatchNews([]));
+    if (selectedWatch && activeTickerRowRef.current) {
+      setTimeout(() => {
+        activeTickerRowRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      }, 50);
+    }
   }, [selectedWatch]);
 
   // Fetch options when selected ticker or tab changes
@@ -183,8 +191,17 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
 
   // Auto-scroll options chain to current price divider
   useEffect(() => {
-    if (watchDetailTab === "option" && !watchOptionsLoading) {
-      requestAnimationFrame(() => optionsPriceDividerRef.current?.scrollIntoView({ behavior: 'instant', block: 'center' }));
+    if (watchDetailTab === "option" && !watchOptionsLoading && optionsChainRef.current && optionsPriceDividerRef.current) {
+      requestAnimationFrame(() => {
+        const container = optionsChainRef.current;
+        const divider = optionsPriceDividerRef.current;
+        if (container && divider) {
+          const containerRect = container.getBoundingClientRect();
+          const dividerRect = divider.getBoundingClientRect();
+          const offset = dividerRect.top - containerRect.top - containerRect.height / 2;
+          container.scrollTop += offset;
+        }
+      });
     }
   }, [watchOptionsExp, watchDetailTab, watchOptionsLoading]);
 
@@ -552,7 +569,7 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
   return (
     <div className="flex flex-col h-full min-h-[400px]">
       {/* Top-level tab switcher */}
-      <div className="tab-group mb-3">
+      <div className="tab-group mb-4">
         <button
           onClick={() => setLeftTab("watchlist")}
           className={`tab-btn flex items-center gap-1.5 ${
@@ -812,456 +829,398 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
       )}
       {/* ── Watchlist Tab ── */}
       {leftTab === "watchlist" && (
-        <div className="flex gap-3 flex-1 min-h-0">
-          {/* Left: ticker list */}
-          <div className="w-[260px] shrink-0 rounded-lg border border-[#30363d] bg-[#0d1117] overflow-hidden flex flex-col">
-            <div className="flex items-center gap-2.5 px-4 py-3 bg-[#161b22] border-b border-[#30363d]">
-              <svg className="w-3.5 h-3.5 text-[#d29922]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.562.562 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.562.562 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" />
-              </svg>
-              <span className="text-[11px] font-semibold text-[#c9d1d9] tracking-wide flex-1">Watchlist</span>
-              <span className="text-[9px] text-[#484f58] tabular-nums bg-[#21262d] px-1.5 py-0.5 rounded-full font-medium">{watchlist.length}</span>
-            </div>
+        <div className="flex flex-col flex-1 min-h-0 rounded-lg border border-[#30363d] bg-[#0d1117] overflow-hidden shadow-sm">
             {/* Add ticker input */}
             <form
-              onSubmit={(e) => { e.preventDefault(); addToWatchlist(watchInput); }}
-              className="flex items-center gap-1.5 px-3 py-2 border-b border-[#21262d]"
+              onSubmit={(e) => { e.preventDefault(); watchInput.split(/[\s,]+/).filter(Boolean).forEach(t => addToWatchlist(t)); }}
+              className="flex items-center gap-2 px-4 py-2 bg-[#161b22] border-b border-[#30363d]"
             >
+              <svg className="w-3.5 h-3.5 text-[#484f58] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
               <input
                 type="text"
                 value={watchInput}
                 onChange={(e) => setWatchInput(e.target.value.toUpperCase())}
-                placeholder="Add ticker…"
-                className="flex-1 bg-[#0d1117] border border-[#30363d] rounded px-2.5 py-1.5 text-[11px] text-[#c9d1d9] placeholder:text-[#30363d] focus:outline-none focus:border-[#58a6ff] transition"
+                placeholder="Add ticker symbols (comma separated)…"
+                className="flex-1 bg-transparent border-none text-[11px] text-[#c9d1d9] placeholder:text-[#484f58] focus:outline-none focus:ring-0"
               />
-              <button
-                type="submit"
-                disabled={!watchInput.trim()}
-                className="px-2.5 py-1.5 rounded bg-[#21262d] border border-[#30363d] text-[#c9d1d9] text-[10px] font-medium disabled:opacity-20 hover:bg-[#30363d] hover:border-[#8b949e] transition shrink-0"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-              </button>
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="submit"
+                  disabled={!watchInput.trim()}
+                  className="px-2.5 py-1 rounded-md bg-[#238636] text-white text-[10px] font-semibold disabled:opacity-20 hover:bg-[#2ea043] transition flex items-center gap-1"
+                >
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                  Add
+                </button>
+                <label
+                  className="px-2.5 py-1 rounded-md bg-[#21262d] text-[#c9d1d9] text-[10px] font-medium hover:bg-[#30363d] transition cursor-pointer flex items-center gap-1"
+                  title="Import tickers from CSV file"
+                >
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" /></svg>
+                  Import
+                  <input
+                    type="file"
+                    accept=".csv,.txt"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onload = (ev) => {
+                        const text = ev.target?.result as string;
+                        text.split(/[\s,\n\r]+/).filter(Boolean).forEach(t => addToWatchlist(t.trim().toUpperCase()));
+                      };
+                      reader.readAsText(file);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (watchlist.length === 0) return;
+                    navigator.clipboard.writeText(watchlist.join(", "));
+                  }}
+                  className="px-2.5 py-1 rounded-md bg-[#21262d] text-[#c9d1d9] text-[10px] font-medium hover:bg-[#30363d] transition flex items-center gap-1"
+                  title="Export watchlist to clipboard"
+                >
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+                  Export
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const csv = "ticker\nAAPL\nMSFT\nAMD\nNVDA\nAMZN\nGOOGL\nMETA\nTSLA\nSPY\nQQQ\nMETA\nKO\nPLTR\nSOFI\nCOIN\n";
+                    const blob = new Blob([csv], { type: "text/csv" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = "watchlist_template.csv";
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="px-2.5 py-1 rounded-md bg-[#21262d] text-[#c9d1d9] text-[10px] font-medium hover:bg-[#30363d] transition flex items-center gap-1"
+                  title="Download a CSV template to customize and import"
+                >
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
+                  Template
+                </button>
+              </div>
             </form>
-            {/* Ticker list */}
+            {/* Ticker table */}
             <div className="flex-1 overflow-y-auto">
               {watchlist.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full gap-2 py-12 px-4">
-                  <svg className="w-6 h-6 text-[#21262d]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.562.562 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.562.562 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" />
-                  </svg>
-                  <p className="text-[10px] text-[#484f58]">Add a ticker to start</p>
+                <div className="flex flex-col items-center justify-center h-full gap-3 py-16 px-4">
+                  <div className="w-12 h-12 rounded-full bg-[#161b22] border border-[#30363d] flex items-center justify-center">
+                    <svg className="w-5 h-5 text-[#484f58]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.562.562 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.562.562 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" />
+                    </svg>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-xs font-medium text-[#8b949e]">Your watchlist is empty</p>
+                    <p className="text-[10px] text-[#484f58] mt-0.5">Add ticker symbols above to start tracking stocks</p>
+                  </div>
                 </div>
               ) : (
-                watchlist.map((t) => {
-                  const md = watchBatch.market_data[t];
-                  const health = watchBatch.financials[t];
-                  const isActive = selectedWatch === t;
-                  const txns = positions[t] || [];
-                  const hasTxns = txns.filter(tx => tx.type === "buy").reduce((s, tx) => s + tx.quantity, 0) - txns.filter(tx => tx.type === "sell").reduce((s, tx) => s + tx.quantity, 0) > 0;
-                  return (
-                    <div
-                      key={t}
-                      onClick={() => setSelectedWatch(t)}
-                      className={`group flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors border-b border-[#21262d]/30 last:border-b-0 ${
-                        isActive
-                          ? "bg-[#161b22] border-l-2 border-l-[#d29922]"
-                          : "hover:bg-[#161b22]/40 border-l-2 border-l-transparent"
-                      }`}
-                    >
-                      <div className="flex-1 min-w-0">
+                <table className="w-full text-xs border-collapse table-fixed">
+                  <thead className="sticky top-0 bg-[#161b22] z-10">
+                    <tr>
+                      <td colSpan={13} className="px-3 py-2 border-b border-[#21262d]">
                         <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-1.5">
-                            <span className={`text-[11px] font-bold tracking-wide ${
-                              isActive ? "text-[#d29922]" : "text-[#c9d1d9]"
-                            }`}>{t}</span>
-                            {health && (
-                              <span className={`text-[9px] font-bold tabular-nums ${healthScoreColor(health.health_score)}`}>
-                                {health.health_score}
-                              </span>
-                            )}
-                            {hasTxns && (
-                              <span className="w-1.5 h-1.5 rounded-full bg-[#d29922]/60 shrink-0" title="Has positions" />
-                            )}
-                            {(() => { const oc = orders.filter(o => o.ticker === t && o.status === "open").length; return oc > 0 ? <span className="text-[8px] font-bold tabular-nums text-[#58a6ff] bg-[#58a6ff]/10 rounded-full px-1.5 py-0.5 leading-none">{oc}</span> : null; })()}
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            {md && (
-                              <span className="text-[10px] text-[#8b949e] font-medium tabular-nums">${md.price.toFixed(2)}</span>
-                            )}
+                          <span className="text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">Positions</span>
+                          <div className="flex items-center gap-2">
                             <button
-                              onClick={(e) => { e.stopPropagation(); removeFromWatchlist(t); }}
-                              className="opacity-0 group-hover:opacity-100 text-[#484f58] hover:text-[#f85149] transition-all p-0.5"
-                              title="Remove"
+                              onClick={() => setWatchRefreshKey(k => k + 1)}
+                              className="text-[9px] text-[#8b949e] hover:text-[#c9d1d9] transition-colors flex items-center gap-1"
+                              title="Refresh data"
                             >
                               <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
                               </svg>
+                              Refresh
+                            </button>
+                            <button
+                              onClick={() => { setWatchlist([]); setSelectedWatch(null); }}
+                              className="text-[9px] text-[#8b949e] hover:text-[#f85149] transition-colors flex items-center gap-1"
+                              title="Clear all tickers"
+                            >
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                              </svg>
+                              Clear All
                             </button>
                           </div>
                         </div>
-                        {health?.name && (
-                          <p className="text-[9px] text-[#484f58] truncate leading-tight">{health.name}</p>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
+                      </td>
+                    </tr>
+                    <tr>
+                      <th className="w-7 px-1.5 py-2.5"></th>
+                      {(["ticker", "name", "sector", "health", "price"] as WatchSortField[]).map((field) => {
+                        const labels: Record<string, [string, string]> = { ticker: ["Ticker", "text-left"], name: ["Company", "text-left"], sector: ["Sector", "text-left"], health: ["Health", "text-center w-24"], price: ["Price", "text-right"] };
+                        const [label, align] = labels[field];
+                        return (
+                          <th key={field} className={`px-3 py-2.5 ${align} text-[9px] font-semibold uppercase tracking-wider cursor-pointer select-none hover:text-[#c9d1d9] transition-colors ${watchSortField === field ? "text-[#c9d1d9]" : "text-[#8b949e]"}`}
+                            onClick={() => { if (watchSortField === field) setWatchSortDir(d => d === "asc" ? "desc" : "asc"); else { setWatchSortField(field); setWatchSortDir("asc"); } }}
+                          >
+                            {label}{watchSortField === field ? (watchSortDir === "asc" ? " ▲" : " ▼") : ""}
+                          </th>
+                        );
+                      })}
+                      <th className="px-3 py-2.5 text-right text-[9px] font-semibold text-[#8b949e] uppercase tracking-wider">Low</th>
+                      <th className="px-3 py-2.5 text-right text-[9px] font-semibold text-[#8b949e] uppercase tracking-wider">High</th>
+                      <th className="px-3 py-2.5 text-left text-[9px] font-semibold text-[#8b949e] uppercase tracking-wider">Earnings</th>
+                      <th className={`px-3 py-2.5 text-left text-[9px] font-semibold uppercase tracking-wider cursor-pointer select-none hover:text-[#c9d1d9] transition-colors ${watchSortField === "analyst" ? "text-[#c9d1d9]" : "text-[#8b949e]"}`}
+                        onClick={() => { if (watchSortField === "analyst") setWatchSortDir(d => d === "asc" ? "desc" : "asc"); else { setWatchSortField("analyst"); setWatchSortDir("asc"); } }}
+                      >
+                        Analyst{watchSortField === "analyst" ? (watchSortDir === "asc" ? " ▲" : " ▼") : ""}
+                      </th>
+                      <th className="px-3 py-2.5 text-center text-[9px] font-semibold text-[#8b949e] uppercase tracking-wider">Contracts</th>
+                      <th className={`px-3 py-2.5 text-center text-[9px] font-semibold uppercase tracking-wider cursor-pointer select-none hover:text-[#c9d1d9] transition-colors ${watchSortField === "positions" ? "text-[#c9d1d9]" : "text-[#8b949e]"}`}
+                        onClick={() => { if (watchSortField === "positions") setWatchSortDir(d => d === "asc" ? "desc" : "asc"); else { setWatchSortField("positions"); setWatchSortDir("desc"); } }}
+                      >
+                        Shares{watchSortField === "positions" ? (watchSortDir === "asc" ? " ▲" : " ▼") : ""}
+                      </th>
+                      <th className="w-8 px-1.5 py-2.5"></th>
+                    </tr>
+                    <tr><td colSpan={13} className="h-px bg-[#30363d]"></td></tr>
+                  </thead>
+                  <tbody>
+                {[...watchlist].sort((a, b) => {
+                  let cmp = 0;
+                  const analystScore = (ticker: string) => {
+                    const t0 = watchBatch.analyst_trends[ticker];
+                    const cur = t0?.find((x: { period: string }) => x.period === "0m") || t0?.[0];
+                    if (!cur) return 99;
+                    const total = cur.strong_buy + cur.buy + cur.hold + cur.sell + cur.strong_sell;
+                    return total === 0 ? 99 : (cur.strong_buy * 1 + cur.buy * 2 + cur.hold * 3 + cur.sell * 4 + cur.strong_sell * 5) / total;
+                  };
+                  switch (watchSortField) {
+                    case "ticker": cmp = a.localeCompare(b); break;
+                    case "name": cmp = (watchBatch.financials[a]?.name ?? "").localeCompare(watchBatch.financials[b]?.name ?? ""); break;
+                    case "price": cmp = (watchBatch.market_data[a]?.price ?? 0) - (watchBatch.market_data[b]?.price ?? 0); break;
+                    case "health": cmp = (watchBatch.financials[a]?.health_score ?? -1) - (watchBatch.financials[b]?.health_score ?? -1); break;
+                    case "sector": cmp = (watchBatch.financials[a]?.sector ?? "").localeCompare(watchBatch.financials[b]?.sector ?? ""); break;
+                    case "analyst": cmp = analystScore(a) - analystScore(b); break;
+                    case "positions": {
+                      const netA = (positions[a] || []).reduce((s, tx) => s + (tx.type === "buy" ? tx.quantity : -tx.quantity), 0);
+                      const netB = (positions[b] || []).reduce((s, tx) => s + (tx.type === "buy" ? tx.quantity : -tx.quantity), 0);
+                      cmp = netA - netB; break;
+                    }
+                  }
+                  if (cmp === 0) cmp = a.localeCompare(b);
+                  return watchSortDir === "asc" ? cmp : -cmp;
+                }).map((t) => {
+                  const md = watchBatch.market_data[t];
+                  const health = watchBatch.financials[t];
+                  const cal = watchBatch.earnings_calendar[t];
+                  const hist = watchBatch.earnings_history[t];
+                  const trends = watchBatch.analyst_trends[t];
+                  const isActive = selectedWatch === t;
+                  const txns = positions[t] || [];
+                  const buyTxns = txns.filter(tx => tx.type === "buy");
+                  const sellTxns = txns.filter(tx => tx.type === "sell");
+                  const totalBuyQty = buyTxns.reduce((s, tx) => s + tx.quantity, 0);
+                  const totalSellQty = sellTxns.reduce((s, tx) => s + tx.quantity, 0);
+                  const netShares = totalBuyQty - totalSellQty;
+                  const totalBuyCost = buyTxns.reduce((s, tx) => s + tx.quantity * tx.price, 0);
+                  const avgCost = totalBuyQty > 0 ? totalBuyCost / totalBuyQty : 0;
+                  const currentValue = netShares * (md?.price ?? 0);
+                  const costBasis = netShares * avgCost;
+                  const pnl = currentValue - costBasis;
+                  const pnlPct = costBasis > 0 ? (pnl / costBasis) * 100 : 0;
+                  const openOrders = orders.filter(o => o.ticker === t && o.status === "open");
+                  const hasCSP = openOrders.some(o => o.leg === "CSP");
+                  const hasCC = openOrders.some(o => o.leg === "CC");
+                  const posType = hasCSP && hasCC ? "CSP+CC" : hasCSP ? "CSP" : hasCC ? "CC" : netShares > 0 ? "Stock" : "—";
+                  const lots = Math.floor(netShares / 100);
 
-          {/* Right: detail panel */}
-          <div className="flex-1 rounded-lg border border-[#30363d] bg-[#0d1117] overflow-hidden flex flex-col">
-            {!selectedWatch ? (
-              <div className="flex flex-col items-center justify-center h-full gap-2 py-16">
-                <svg className="w-8 h-8 text-[#21262d]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.562.562 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.562.562 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" />
-                </svg>
-                <p className="text-[11px] text-[#484f58]">Select a ticker to view details</p>
-              </div>
-            ) : (
-              <>
-                {/* Ticker header */}
-                <div className="bg-[#161b22] px-5 py-3 border-b border-[#21262d]">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-xs font-bold border ${
-                        watchBatch.financials[selectedWatch]?.health_score >= 70
-                          ? "bg-[#238636]/10 border-[#238636]/20 text-[#3fb950]"
-                          : watchBatch.financials[selectedWatch]?.health_score >= 40
-                          ? "bg-[#d29922]/10 border-[#d29922]/20 text-[#d29922]"
-                          : watchBatch.financials[selectedWatch]
-                          ? "bg-[#f85149]/10 border-[#f85149]/20 text-[#f85149]"
-                          : "bg-[#21262d] border-[#30363d] text-[#8b949e]"
-                      }`}>
-                        {selectedWatch.slice(0, 2)}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-bold text-[#f0f6fc] tracking-tight">{selectedWatch}</span>
-                          {watchBatch.financials[selectedWatch] && (
-                            <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold ${healthScoreBadgeColor(watchBatch.financials[selectedWatch].health_score)}`}>
-                              <span className="tabular-nums">{watchBatch.financials[selectedWatch].health_score}</span>
-                            </span>
-                          )}
-                          {watchBatch.financials[selectedWatch]?.verdict && (
-                            <span className={`inline-flex px-1.5 py-0.5 rounded text-[9px] font-bold ${verdictBadgeColor(watchBatch.financials[selectedWatch].verdict)}`}>
-                              {watchBatch.financials[selectedWatch].verdict}
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                          {watchBatch.financials[selectedWatch]?.name && (
-                            <span className="text-[11px] text-[#8b949e]">{watchBatch.financials[selectedWatch].name}</span>
-                          )}
-                          {watchBatch.financials[selectedWatch]?.sector && (
-                            <><span className="text-[#30363d] text-[10px]">·</span><span className="text-[11px] text-[#484f58]">{watchBatch.financials[selectedWatch].sector}</span></>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      {watchBatch.market_data[selectedWatch] && (
-                        <span className="text-base font-bold text-[#f0f6fc] tabular-nums">${watchBatch.market_data[selectedWatch].price.toFixed(2)}</span>
-                      )}
-                      <div className="flex items-center gap-1 mt-1 justify-end flex-wrap">
-                        {watchBatch.market_data[selectedWatch] && (
-                          <span className="text-[9px] text-[#484f58] tabular-nums">
-                            ${watchBatch.market_data[selectedWatch].week52_low.toFixed(0)}–${watchBatch.market_data[selectedWatch].week52_high.toFixed(0)}
-                          </span>
-                        )}
-                        {watchBatch.financials[selectedWatch]?.trailing_pe != null && (
-                          <span className="text-[9px] text-[#484f58] tabular-nums">
-                            · P/E {watchBatch.financials[selectedWatch].trailing_pe!.toFixed(1)}
-                          </span>
-                        )}
-                        {watchBatch.financials[selectedWatch]?.revenue_growth != null && (
-                          <span className="text-[9px] tabular-nums">
-                            · <span className={watchBatch.financials[selectedWatch].revenue_growth! >= 0 ? "text-[#3fb950]" : "text-[#f85149]"}>
-                              {watchBatch.financials[selectedWatch].revenue_growth! >= 0 ? "+" : ""}{(watchBatch.financials[selectedWatch].revenue_growth! * 100).toFixed(1)}%
-                            </span>
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                  // Earnings
+                  const nextEarnings = cal && cal.length > 0 ? cal[0] : null;
+                  const sortedHist = hist ? [...hist].sort((a, b) => b.report_date.localeCompare(a.report_date)) : [];
+                  const lastEarnings = sortedHist.length > 0 ? sortedHist[0] : null;
 
-                {/* Detail sub-tabs */}
-                <div className="tab-group overflow-x-auto">
-                  {(["summary", "financials", "research", "position", "option", "order"] as const).map((tab) => {
-                    const label = { summary: "Summary", financials: "Financials", research: "Research", position: "Position", option: "Options", order: "Contracts" }[tab];
+                  // Analyst
+                  const latest = trends?.[0];
+                  const totalAnalysts = latest ? latest.strong_buy + latest.buy + latest.hold + latest.sell + latest.strong_sell : 0;
+                  const bullish = latest ? latest.strong_buy + latest.buy : 0;
+                  const bearish = latest ? latest.sell + latest.strong_sell : 0;
+                  const consensus = totalAnalysts === 0 ? "—"
+                    : bullish / totalAnalysts >= 0.7 ? "Strong Buy"
+                    : bullish / totalAnalysts >= 0.5 ? "Buy"
+                    : bearish / totalAnalysts >= 0.5 ? "Sell"
+                    : bearish / totalAnalysts >= 0.7 ? "Strong Sell"
+                    : "Hold";
+
+                  return (
+                    <React.Fragment key={t}>
+                      <tr
+                        ref={isActive ? activeTickerRowRef : undefined}
+                        onClick={() => setSelectedWatch(isActive ? null : t)}
+                        className={`group cursor-pointer transition-all duration-100 ${isActive ? "bg-[#161b22]" : "hover:bg-[#161b22]/50"}`}
+                      >
+                        <td className="px-1.5 py-3 text-center border-b border-[#21262d]/30">
+                          <svg className={`w-3 h-3 transition-transform duration-150 inline-block ${isActive ? "rotate-90 text-[#d29922]" : "text-[#30363d] group-hover:text-[#484f58]"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                          </svg>
+                        </td>
+                        {/* Ticker */}
+                        <td className="px-3 py-3 border-b border-[#21262d]/30">
+                          <span
+                            onClick={(e) => { e.stopPropagation(); openHealthPopup(t); }}
+                            className={`text-[11px] font-bold tracking-wide cursor-pointer hover:underline decoration-dotted underline-offset-2 ${isActive ? "text-[#d29922]" : "text-[#58a6ff]"}`}
+                          >{t}</span>
+                        </td>
+                        {/* Company */}
+                        <td className="px-3 py-3 border-b border-[#21262d]/30">
+                          <span className="text-[10px] text-[#8b949e] truncate block max-w-[140px]">{health?.name ?? "—"}</span>
+                        </td>
+                        {/* Sector */}
+                        <td className="px-3 py-3 border-b border-[#21262d]/30">
+                          {health?.sector ? (
+                            <span className="text-[9px] text-[#8b949e] bg-[#21262d] px-1.5 py-0.5 rounded whitespace-nowrap">{health.sector}</span>
+                          ) : (
+                            <span className="text-[10px] text-[#30363d]">—</span>
+                          )}
+                        </td>
+                        {/* Health */}
+                        <td className="px-3 py-3 text-center border-b border-[#21262d]/30">
+                          {health ? (
+                            <div className="inline-flex items-center gap-1.5">
+                              <div className="w-10 h-1 rounded-full bg-[#21262d] overflow-hidden">
+                                <div
+                                  className="h-full rounded-full"
+                                  style={{
+                                    width: `${health.health_score}%`,
+                                    backgroundColor: health.health_score >= 70 ? '#3fb950' : health.health_score >= 40 ? '#d29922' : '#f85149',
+                                  }}
+                                />
+                              </div>
+                              <span className={`text-[10px] font-bold tabular-nums leading-none ${healthScoreColor(health.health_score)}`}>
+                                {health.health_score}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-[10px] text-[#30363d]">—</span>
+                          )}
+                        </td>
+                        {/* Price */}
+                        <td className="px-3 py-3 text-right border-b border-[#21262d]/30">
+                          <span className="text-[11px] text-[#f0f6fc] font-semibold tabular-nums">{md ? `$${md.price.toFixed(2)}` : "—"}</span>
+                        </td>
+                        {/* Low (52W + Day) */}
+                        <td className="px-3 py-3 text-right border-b border-[#21262d]/30">
+                          {md ? (
+                            <div className="space-y-0.5">
+                              <div className="text-[9px] tabular-nums leading-none"><span className="text-[#484f58] font-medium">52W</span> <span className="text-[#8b949e]">${md.week52_low.toFixed(2)}</span></div>
+                              <div className="text-[9px] tabular-nums leading-none"><span className="text-[#484f58] font-medium">Day</span> <span className="text-[#8b949e]">${md.daily_low.toFixed(2)}</span></div>
+                            </div>
+                          ) : <span className="text-[10px] text-[#30363d]">—</span>}
+                        </td>
+                        {/* High (52W + Day) */}
+                        <td className="px-3 py-3 text-right border-b border-[#21262d]/30">
+                          {md ? (
+                            <div className="space-y-0.5">
+                              <div className="text-[9px] tabular-nums leading-none"><span className="text-[#484f58] font-medium">52W</span> <span className="text-[#8b949e]">${md.week52_high.toFixed(2)}</span></div>
+                              <div className="text-[9px] tabular-nums leading-none"><span className="text-[#484f58] font-medium">Day</span> <span className="text-[#8b949e]">${md.daily_high.toFixed(2)}</span></div>
+                            </div>
+                          ) : <span className="text-[10px] text-[#30363d]">—</span>}
+                        </td>
+                        {/* Earnings */}
+                        <td className="px-3 py-3 border-b border-[#21262d]/30">
+                          <div className="space-y-0.5">
+                            {nextEarnings ? (
+                              <div className="text-[9px] tabular-nums leading-none">
+                                <span className={`font-semibold ${nextEarnings.days_until <= 14 ? "text-[#d29922]" : "text-[#c9d1d9]"}`}>{nextEarnings.days_until}d</span>
+                                <span className="text-[#484f58] ml-1">{nextEarnings.earnings_date}</span>
+                              </div>
+                            ) : <span className="text-[9px] text-[#30363d]">—</span>}
+                            {lastEarnings && (
+                              <div className="text-[9px] tabular-nums leading-none">
+                                <span className={lastEarnings.beat === true ? "text-[#3fb950]" : lastEarnings.beat === false ? "text-[#f85149]" : "text-[#484f58]"}>
+                                  {lastEarnings.beat === true ? "Beat" : lastEarnings.beat === false ? "Miss" : "—"} {lastEarnings.fiscal_quarter}
+                                </span>
+                                {lastEarnings.eps_surprise != null && (
+                                  <span className={`ml-1 ${lastEarnings.eps_surprise >= 0 ? "text-[#3fb950]/70" : "text-[#f85149]/70"}`}>
+                                    {lastEarnings.eps_surprise >= 0 ? "+" : ""}{lastEarnings.eps_surprise.toFixed(2)}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        {/* Analyst */}
+                        <td className="px-3 py-3 border-b border-[#21262d]/30">
+                          <span className={`text-[10px] font-semibold ${
+                            consensus.includes("Buy") ? "text-[#3fb950]" : consensus === "Hold" ? "text-[#d29922]" : consensus.includes("Sell") ? "text-[#f85149]" : "text-[#30363d]"
+                          }`}>{consensus}</span>
+                        </td>
+                        {/* Open Contracts */}
+                        <td className="px-3 py-3 text-center border-b border-[#21262d]/30">
+                          {openOrders.length > 0 ? (
+                            <span className="text-[10px] font-semibold text-[#58a6ff]">{openOrders.length}</span>
+                          ) : (
+                            <span className="text-[10px] text-[#30363d]">—</span>
+                          )}
+                        </td>
+                        {/* Shares */}
+                        <td className="px-3 py-3 text-center border-b border-[#21262d]/30">
+                          {netShares > 0 ? (
+                            <span className="text-[10px] font-semibold text-[#c9d1d9]">{netShares}</span>
+                          ) : (
+                            <span className="text-[10px] text-[#30363d]">—</span>
+                          )}
+                        </td>
+                        {/* Remove */}
+                        <td className="px-1.5 py-3 text-center border-b border-[#21262d]/30">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); removeFromWatchlist(t); }}
+                            className="opacity-0 group-hover:opacity-100 text-[#30363d] hover:text-[#f85149] transition-all duration-150 p-0.5 rounded"
+                            title="Remove"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </td>
+                      </tr>
+                      {/* Expanded detail panel */}
+                      {isActive && (
+                        <tr><td colSpan={13} className="p-0 border-b border-[#30363d]">
+                        <div className="bg-[#0d1117]/95 backdrop-blur-sm">
+
+                {/* Detail sub-tabs — underline style */}
+                <div className="flex items-center gap-0 px-4 pt-3 pb-0 border-b border-[#21262d] bg-[#161b22]/50 overflow-x-auto">
+                  {(["position", "option", "order"] as const).map((tab) => {
+                    const label = { position: "Position", option: "Options", order: "Contracts" }[tab];
                     const icon = {
-                      summary: <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" /></svg>,
-                      financials: <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>,
-                      research: <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" /></svg>,
-                      position: <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" /></svg>,
-                      option: <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 0 0 6 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0 1 18 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5" /></svg>,
-                      order: <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15a2.25 2.25 0 0 1 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25Z" /></svg>,
+                      position: <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" /></svg>,
+                      option: <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 0 0 6 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0 1 18 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5" /></svg>,
+                      order: <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15a2.25 2.25 0 0 1 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25Z" /></svg>,
                     }[tab];
+                    const isTabActive = watchDetailTab === tab;
                     return (
                       <button
                         key={tab}
                         onClick={() => setWatchDetailTab(tab)}
-                        className={`tab-btn whitespace-nowrap inline-flex items-center gap-1 ${
-                          watchDetailTab === tab
-                            ? "bg-[#30363d] text-[#c9d1d9]"
+                        className={`relative whitespace-nowrap inline-flex items-center gap-1.5 px-3 py-2.5 text-[11px] font-medium transition-colors focus:outline-none focus:ring-0 ${
+                          isTabActive
+                            ? "text-[#f0f6fc]"
                             : "text-[#8b949e] hover:text-[#c9d1d9]"
                         }`}
                       >
                         {icon}
                         {label}
-                        {tab === "order" && (() => { const oc = orders.filter(o => o.ticker === selectedWatch && o.status === "open").length; return oc > 0 ? <span className="text-[8px] font-bold tabular-nums text-[#58a6ff] bg-[#58a6ff]/10 rounded-full px-1.5 leading-none">{oc}</span> : null; })()}
+                        {tab === "order" && (() => { const oc = orders.filter(o => o.ticker === selectedWatch && o.status === "open").length; return oc > 0 ? <span className="text-[8px] font-bold tabular-nums text-[#58a6ff] bg-[#58a6ff]/10 rounded-full px-1.5 py-0.5 leading-none">{oc}</span> : null; })()}
+                        {isTabActive && <span className="absolute bottom-0 inset-x-1.5 h-[2px] rounded-full bg-[#d29922]" />}
                       </button>
                     );
                   })}
                 </div>
 
                 {/* Tab content */}
-                <div className="flex-1 overflow-y-auto p-4 bg-[#0d1117]">
-                  {watchDetailTab === "summary" && (
-                    <SummaryTab health={watchBatch.financials[selectedWatch]} />
-                  )}
-                  {watchDetailTab === "financials" && (
-                    <FinancialsTab health={watchBatch.financials[selectedWatch]} />
-                  )}
-                  {watchDetailTab === "research" && (() => {
-                    const md = watchBatch.market_data[selectedWatch];
-                    const cal = watchBatch.earnings_calendar[selectedWatch];
-                    const hist = watchBatch.earnings_history[selectedWatch];
-                    const trends = watchBatch.analyst_trends[selectedWatch];
-                    const fmtP = (v: number) => `$${v.toFixed(2)}`;
-                    const fmtPct = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
-
-                    const sortedHist = hist ? [...hist].sort((a, b) => b.report_date.localeCompare(a.report_date)) : [];
-                    let streak = 0;
-                    for (const e of sortedHist) { if (e.beat === true) streak++; else break; }
-
-                    const latest = trends?.[0];
-                    const totalAnalysts = latest ? latest.strong_buy + latest.buy + latest.hold + latest.sell + latest.strong_sell : 0;
-                    const bullish = latest ? latest.strong_buy + latest.buy : 0;
-                    const bearish = latest ? latest.sell + latest.strong_sell : 0;
-                    const bullPct = totalAnalysts > 0 ? ((bullish / totalAnalysts) * 100).toFixed(0) : "0";
-                    const consensus = totalAnalysts === 0 ? "N/A"
-                      : bullish / totalAnalysts >= 0.7 ? "Strong Buy"
-                      : bullish / totalAnalysts >= 0.5 ? "Buy"
-                      : bearish / totalAnalysts >= 0.5 ? "Sell"
-                      : bearish / totalAnalysts >= 0.7 ? "Strong Sell"
-                      : "Hold";
-                    const consensusColor = consensus === "Strong Buy" || consensus === "Buy"
-                      ? "text-[#3fb950]" : consensus === "Hold"
-                      ? "text-[#d29922]" : consensus === "N/A"
-                      ? "text-[#484f58]" : "text-[#f85149]";
-
-                    const toggleResearch = (k: string) => setResearchCollapsed(prev => ({ ...prev, [k]: !prev[k] }));
-
-                    const formatTimeAgo = (ts: number) => {
-                      const secs = Math.floor((Date.now() - ts * 1000) / 1000);
-                      if (secs < 60) return "now";
-                      const mins = Math.floor(secs / 60);
-                      if (mins < 60) return `${mins}m`;
-                      const hrs = Math.floor(mins / 60);
-                      if (hrs < 24) return `${hrs}h`;
-                      const days = Math.floor(hrs / 24);
-                      return `${days}d`;
-                    };
-
-                    const SectionHeader = ({ id, icon, label, badge }: { id: string; icon: React.ReactNode; label: string; badge?: React.ReactNode }) => (
-                      <button
-                        onClick={() => toggleResearch(id)}
-                        className="w-full flex items-center gap-2 px-3 py-2 bg-[#161b22] hover:bg-[#1c2128] transition-colors select-none"
-                      >
-                        <svg className={`w-3 h-3 text-[#484f58] transition-transform ${researchCollapsed[id] ? "-rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-                        </svg>
-                        {icon}
-                        <span className="text-[10px] font-bold text-[#c9d1d9] uppercase tracking-widest flex-1 text-left">{label}</span>
-                        {badge}
-                      </button>
-                    );
-
-                    const Row = ({ label, children, muted }: { label: string; children: React.ReactNode; muted?: boolean }) => (
-                      <div className={`flex items-center justify-between px-3 py-1.5 ${muted ? "" : "border-t border-[#21262d]/40"}`}>
-                        <span className="text-[10px] text-[#484f58]">{label}</span>
-                        <span className="text-[10px] tabular-nums font-medium">{children}</span>
-                      </div>
-                    );
-
-                    return (
-                      <div className="space-y-2">
-                        {/* ── Price ── */}
-                        <div className="border border-[#21262d] rounded-lg overflow-hidden">
-                          <SectionHeader
-                            id="price"
-                            icon={<svg className="w-3 h-3 text-[#8b949e]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" /></svg>}
-                            label="Price"
-                            badge={md ? <span className="text-[10px] font-bold text-[#f0f6fc] tabular-nums">{fmtP(md.price)}</span> : undefined}
-                          />
-                          {!researchCollapsed["price"] && (
-                            md ? (
-                              <div className="bg-[#0d1117]">
-                                <Row label="Daily Range"><span className="text-[#c9d1d9]">{fmtP(md.daily_low)} — {fmtP(md.daily_high)}</span></Row>
-                                <Row label="52-Week Low"><span className="text-[#c9d1d9]">{fmtP(md.week52_low)}</span></Row>
-                                <Row label="52-Week High"><span className="text-[#c9d1d9]">{fmtP(md.week52_high)}</span></Row>
-                                <Row label="52-Week Position">
-                                  <span className="text-[#c9d1d9]">
-                                    {md.week52_high > md.week52_low ? (() => {
-                                      const pct = (md.price - md.week52_low) / (md.week52_high - md.week52_low) * 100;
-                                      return (
-                                        <span className="inline-flex items-center gap-1.5">
-                                          <span className="w-16 h-1.5 rounded-full bg-[#21262d] overflow-hidden inline-block align-middle">
-                                            <span className="h-full rounded-full bg-[#58a6ff] block" style={{ width: `${Math.min(100, pct)}%` }} />
-                                          </span>
-                                          {pct.toFixed(0)}%
-                                        </span>
-                                      );
-                                    })() : "—"}
-                                  </span>
-                                </Row>
-                                <Row label="Market State"><span className="text-[#8b949e]">{md.market_state}</span></Row>
-                                {md.pre_market_price != null && (
-                                  <Row label="Pre-Market">
-                                    <span className={md.pre_market_change_percent != null && md.pre_market_change_percent >= 0 ? "text-[#3fb950]" : "text-[#f85149]"}>
-                                      {fmtP(md.pre_market_price)} {md.pre_market_change_percent != null && fmtPct(md.pre_market_change_percent)}
-                                    </span>
-                                  </Row>
-                                )}
-                                {md.post_market_price != null && (
-                                  <Row label="After-Hours">
-                                    <span className={md.post_market_change_percent != null && md.post_market_change_percent >= 0 ? "text-[#3fb950]" : "text-[#f85149]"}>
-                                      {fmtP(md.post_market_price)} {md.post_market_change_percent != null && fmtPct(md.post_market_change_percent)}
-                                    </span>
-                                  </Row>
-                                )}
-                              </div>
-                            ) : (
-                              <div className="px-3 py-3 text-[10px] text-[#484f58] text-center bg-[#0d1117]">No price data available</div>
-                            )
-                          )}
-                        </div>
-
-                        {/* ── Earnings ── */}
-                        <div className="border border-[#21262d] rounded-lg overflow-hidden">
-                          <SectionHeader
-                            id="earnings"
-                            icon={<svg className="w-3 h-3 text-[#8b949e]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" /></svg>}
-                            label="Earnings"
-                            badge={streak > 0 ? <span className="text-[9px] font-bold bg-[#3fb950]/15 text-[#3fb950] px-1.5 py-0.5 rounded">{streak}Q beat streak</span> : undefined}
-                          />
-                          {!researchCollapsed["earnings"] && (
-                            (cal && cal.length > 0) || sortedHist.length > 0 ? (
-                              <div className="bg-[#0d1117]">
-                                {cal && cal.length > 0 && (
-                                  <>
-                                    <Row label="Next Earnings"><span className="text-[#c9d1d9]">{cal[0].earnings_date}</span></Row>
-                                    <Row label="Days Until"><span className={cal[0].days_until <= 7 ? "text-[#d29922] font-semibold" : "text-[#c9d1d9]"}>{cal[0].days_until}d</span></Row>
-                                  </>
-                                )}
-                                {sortedHist.length > 0 && (
-                                  <div className="border-t border-[#21262d]/40 px-3 py-2">
-                                    <div className="grid grid-cols-6 gap-1">
-                                      {sortedHist.slice(0, 6).map((e, i) => (
-                                        <div key={i} className="text-center">
-                                          <div className="text-[8px] text-[#484f58] mb-0.5 truncate">{e.fiscal_quarter}</div>
-                                          <div className={`text-[9px] font-bold px-1 py-0.5 rounded ${
-                                            e.beat === true ? "bg-[#3fb950]/15 text-[#3fb950]" :
-                                            e.beat === false ? "bg-[#f85149]/15 text-[#f85149]" :
-                                            "bg-[#21262d] text-[#484f58]"
-                                          }`}>
-                                            {e.eps_actual != null ? `$${e.eps_actual.toFixed(2)}` : "—"}
-                                          </div>
-                                          {e.eps_surprise != null && (
-                                            <div className={`text-[8px] mt-0.5 ${e.eps_surprise >= 0 ? "text-[#3fb950]" : "text-[#f85149]"}`}>
-                                              {e.eps_surprise >= 0 ? "+" : ""}{e.eps_surprise.toFixed(2)}
-                                            </div>
-                                          )}
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            ) : (
-                              <div className="px-3 py-3 text-[10px] text-[#484f58] text-center bg-[#0d1117]">No earnings data available</div>
-                            )
-                          )}
-                        </div>
-
-                        {/* ── Analyst ── */}
-                        <div className="border border-[#21262d] rounded-lg overflow-hidden">
-                          <SectionHeader
-                            id="analyst"
-                            icon={<svg className="w-3 h-3 text-[#8b949e]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" /></svg>}
-                            label="Analyst"
-                            badge={totalAnalysts > 0 ? <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${consensusColor === "text-[#3fb950]" ? "bg-[#3fb950]/15 text-[#3fb950]" : consensusColor === "text-[#d29922]" ? "bg-[#d29922]/15 text-[#d29922]" : consensusColor === "text-[#f85149]" ? "bg-[#f85149]/15 text-[#f85149]" : "bg-[#21262d] text-[#484f58]"}`}>{consensus}</span> : undefined}
-                          />
-                          {!researchCollapsed["analyst"] && (
-                            latest && totalAnalysts > 0 ? (
-                              <div className="bg-[#0d1117]">
-                                <div className="border-t border-[#21262d]/40 px-3 py-2">
-                                  <div className="flex items-center gap-1 h-2.5 rounded-full overflow-hidden bg-[#21262d]">
-                                    {[{c: "bg-[#2ea043]", v: latest.strong_buy}, {c: "bg-[#3fb950]", v: latest.buy}, {c: "bg-[#d29922]", v: latest.hold}, {c: "bg-[#db6d28]", v: latest.sell}, {c: "bg-[#f85149]", v: latest.strong_sell}].map((s, i) => (
-                                      s.v > 0 ? <div key={i} className={`${s.c} h-full`} style={{ width: `${(s.v / totalAnalysts) * 100}%` }} /> : null
-                                    ))}
-                                  </div>
-                                  <div className="flex justify-between mt-1">
-                                    <span className="text-[8px] text-[#3fb950]">{bullPct}% Bull</span>
-                                    <span className="text-[8px] text-[#484f58]">{totalAnalysts} analysts</span>
-                                  </div>
-                                </div>
-                                <Row label="Strong Buy"><span className="text-[#2ea043]">{latest.strong_buy}</span></Row>
-                                <Row label="Buy"><span className="text-[#3fb950]">{latest.buy}</span></Row>
-                                <Row label="Hold"><span className="text-[#d29922]">{latest.hold}</span></Row>
-                                <Row label="Sell"><span className="text-[#db6d28]">{latest.sell}</span></Row>
-                                <Row label="Strong Sell"><span className="text-[#f85149]">{latest.strong_sell}</span></Row>
-                              </div>
-                            ) : (
-                              <div className="px-3 py-3 text-[10px] text-[#484f58] text-center bg-[#0d1117]">No analyst data available</div>
-                            )
-                          )}
-                        </div>
-
-                        {/* ── News ── */}
-                        <div className="border border-[#21262d] rounded-lg overflow-hidden">
-                          <SectionHeader
-                            id="news"
-                            icon={<svg className="w-3 h-3 text-[#8b949e]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 0 1-2.25 2.25M16.5 7.5V18a2.25 2.25 0 0 0 2.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 0 0 2.25 2.25h13.5" /></svg>}
-                            label="News"
-                            badge={watchNews.length > 0 ? <span className="text-[9px] text-[#484f58]">{watchNews.length}</span> : undefined}
-                          />
-                          {!researchCollapsed["news"] && (
-                            watchNews.length > 0 ? (
-                              <div className="bg-[#0d1117] divide-y divide-[#21262d]/40 max-h-[320px] overflow-y-auto">
-                                {watchNews.map((item, i) => (
-                                  <a
-                                    key={i}
-                                    href={item.link}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="flex items-start gap-2 px-3 py-2 hover:bg-[#161b22]/80 transition-colors group"
-                                  >
-                                    <div className="flex-1 min-w-0">
-                                      <p className="text-[10px] text-[#c9d1d9] leading-snug line-clamp-2 group-hover:text-[#f0f6fc] transition-colors">{item.title}</p>
-                                      <div className="flex items-center gap-1.5 mt-0.5">
-                                        <span className="text-[8px] text-[#484f58]">{item.publisher}</span>
-                                        <span className="text-[8px] text-[#30363d]">·</span>
-                                        <span className="text-[8px] text-[#30363d]">{formatTimeAgo(item.published_at)}</span>
-                                      </div>
-                                    </div>
-                                    <svg className="w-3 h-3 text-[#30363d] group-hover:text-[#484f58] mt-0.5 shrink-0 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
-                                    </svg>
-                                  </a>
-                                ))}
-                              </div>
-                            ) : (
-                              <div className="px-3 py-3 text-[10px] text-[#484f58] text-center bg-[#0d1117]">No recent news</div>
-                            )
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })()}
+                <div className="p-5 bg-[#0d1117] h-[540px] flex flex-col overflow-y-scroll">
 
                   {/* ── Position tab ── */}
                   {watchDetailTab === "position" && (() => {
@@ -1284,7 +1243,9 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                       if (!txn.quantity || txn.quantity <= 0 || !txn.price || txn.price <= 0) return;
                       setPositions(prev => ({ ...prev, [selectedWatch]: [...(prev[selectedWatch] || []), txn] }));
                       form.reset();
+                      (form.elements.namedItem("type") as HTMLSelectElement).value = "";
                       (form.elements.namedItem("date") as HTMLInputElement).value = today;
+                      (form.elements.namedItem("quantity") as HTMLInputElement).value = "";
                       (form.elements.namedItem("price") as HTMLInputElement).value = defaultPrice > 0 ? defaultPrice.toFixed(2) : "";
                     };
 
@@ -1303,46 +1264,12 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                     const totalSellProceeds = sellTxns.reduce((s, t) => s + t.quantity * t.price, 0);
                     const avgBuyPrice = totalBuyQty > 0 ? totalBuyCost / totalBuyQty : 0;
                     const netShares = totalBuyQty - totalSellQty;
-                    const currentValue = netShares * (md?.price ?? 0);
-                    const costBasis = netShares > 0 ? netShares * avgBuyPrice : 0;
-                    const unrealizedPnl = currentValue - costBasis;
-                    const unrealizedPct = costBasis > 0 ? (unrealizedPnl / costBasis) * 100 : 0;
-                    const realizedPnl = totalSellProceeds - (totalSellQty > 0 ? totalSellQty * avgBuyPrice : 0);
-                    const totalPnl = unrealizedPnl + realizedPnl;
+                    const netCashFlow = totalSellProceeds - totalBuyCost;
 
                     const sorted = [...txns].sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
 
                     return (
                       <div className="space-y-3 p-1">
-                        {/* ── Summary Cards ── */}
-                        {txns.length > 0 && (
-                          <div className="grid grid-cols-4 gap-2">
-                            <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-2.5">
-                              <div className="text-[8px] text-[#484f58] uppercase tracking-widest font-semibold mb-1">Shares</div>
-                              <div className={`text-sm font-bold tabular-nums ${netShares > 0 ? "text-[#f0f6fc]" : netShares < 0 ? "text-[#f85149]" : "text-[#484f58]"}`}>{netShares.toLocaleString()}</div>
-                              <div className="text-[9px] text-[#484f58] tabular-nums mt-0.5">{Math.floor(netShares / 100)} lots</div>
-                            </div>
-                            <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-2.5">
-                              <div className="text-[8px] text-[#484f58] uppercase tracking-widest font-semibold mb-1">Avg Cost</div>
-                              <div className="text-sm font-bold text-[#f0f6fc] tabular-nums">{avgBuyPrice > 0 ? `$${avgBuyPrice.toFixed(2)}` : "—"}</div>
-                              <div className="text-[9px] text-[#484f58] tabular-nums mt-0.5">Basis ${costBasis.toLocaleString(undefined, {maximumFractionDigits: 0})}</div>
-                            </div>
-                            <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-2.5">
-                              <div className="text-[8px] text-[#484f58] uppercase tracking-widest font-semibold mb-1">Mkt Value</div>
-                              <div className="text-sm font-bold text-[#f0f6fc] tabular-nums">${currentValue.toLocaleString(undefined, {maximumFractionDigits: 0})}</div>
-                              <div className="text-[9px] text-[#484f58] tabular-nums mt-0.5">@ ${md?.price?.toFixed(2) ?? "—"}</div>
-                            </div>
-                            <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-2.5">
-                              <div className="text-[8px] text-[#484f58] uppercase tracking-widest font-semibold mb-1">Total P&L</div>
-                              <div className={`text-sm font-bold tabular-nums ${totalPnl >= 0 ? "text-[#3fb950]" : "text-[#f85149]"}`}>{totalPnl >= 0 ? "+" : ""}${totalPnl.toLocaleString(undefined, {maximumFractionDigits: 0})}</div>
-                              <div className="flex gap-2 mt-0.5">
-                                <span className={`text-[8px] tabular-nums ${unrealizedPnl >= 0 ? "text-[#3fb950]/70" : "text-[#f85149]/70"}`}>Unrl {unrealizedPnl >= 0 ? "+" : ""}{unrealizedPct.toFixed(1)}%</span>
-                                <span className={`text-[8px] tabular-nums ${realizedPnl >= 0 ? "text-[#3fb950]/70" : "text-[#f85149]/70"}`}>Rlzd {realizedPnl >= 0 ? "+" : ""}${realizedPnl.toFixed(0)}</span>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
                         {/* ── Inline Add Form ── */}
                         <form onSubmit={addTxn} className="border border-[#21262d] rounded-lg overflow-hidden">
                           <div className="bg-[#161b22] px-3 py-1.5 border-b border-[#21262d] flex items-center justify-between">
@@ -1398,9 +1325,17 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                             </div>
                             <button
                               type="submit"
-                              className="flex-none px-3 py-1 rounded bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] text-[10px] font-semibold text-[#c9d1d9] transition-colors"
+                              className="flex-none px-2.5 py-1 rounded bg-[#238636] hover:bg-[#2ea043] border border-[#238636] text-[10px] font-semibold text-white transition-colors flex items-center gap-1"
                             >
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
                               Add
+                            </button>
+                            <button
+                              type="reset"
+                              className="flex-none px-2.5 py-1 rounded bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] text-[10px] font-semibold text-[#8b949e] transition-colors flex items-center gap-1"
+                            >
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
+                              Reset
                             </button>
                           </div>
                         </form>
@@ -1459,8 +1394,8 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                                   <td className="px-2.5 py-2 text-[9px] font-bold text-[#8b949e] uppercase" colSpan={2}>Net Position</td>
                                   <td className={`px-2.5 py-2 text-right tabular-nums font-bold ${netShares > 0 ? "text-[#f0f6fc]" : netShares < 0 ? "text-[#f85149]" : "text-[#484f58]"}`}>{netShares}</td>
                                   <td className="px-2.5 py-2 text-right text-[#8b949e] tabular-nums">{avgBuyPrice > 0 ? `$${avgBuyPrice.toFixed(2)}` : "—"}</td>
-                                  <td className={`px-2.5 py-2 text-right tabular-nums font-bold ${unrealizedPnl >= 0 ? "text-[#3fb950]" : "text-[#f85149]"}`}>
-                                    {unrealizedPnl >= 0 ? "+" : ""}${unrealizedPnl.toLocaleString(undefined, {maximumFractionDigits: 0})}
+                                  <td className={`px-2.5 py-2 text-right tabular-nums font-bold ${netCashFlow >= 0 ? "text-[#3fb950]" : "text-[#f85149]"}`}>
+                                    {netCashFlow >= 0 ? "+" : ""}${netCashFlow.toLocaleString(undefined, {maximumFractionDigits: 2})}
                                   </td>
                                   <td></td>
                                 </tr>
@@ -1571,7 +1506,7 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                         </div>
 
                         {/* Right: Option chain */}
-                        <div className="flex-1 min-w-0 rounded border border-[#21262d] overflow-hidden flex flex-col bg-[#0d1117]">
+                        <div className="flex-1 min-w-0 min-h-0 rounded border border-[#21262d] overflow-hidden flex flex-col bg-[#0d1117]">
                           {activeExp ? (
                             <>
                               <div className="px-3 py-2 bg-[#161b22] border-b border-[#21262d] flex items-center justify-between shrink-0">
@@ -2037,9 +1972,16 @@ export default function Discovery({ existingTickers = [], onAddTicker, onRemoveT
                     );
                   })()}
                 </div>
-              </>
-            )}
-          </div>
+                        </div>
+                        </td></tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+                  </tbody>
+                </table>
+              )}
+            </div>
         </div>
       )}
 

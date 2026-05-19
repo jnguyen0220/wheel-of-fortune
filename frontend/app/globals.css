@@ -47,12 +47,17 @@ table, .tabular-nums {
   font-variant-numeric: tabular-nums;
 }
 
-/* Better focus states */
+/* Better focus states — only for keyboard navigation */
 input:focus,
-button:focus,
 select:focus,
 textarea:focus {
   @apply outline-none ring-1 ring-[var(--accent-blue)] ring-offset-0;
+}
+button:focus-visible {
+  @apply outline-none ring-1 ring-[var(--accent-blue)] ring-offset-0;
+}
+button:focus:not(:focus-visible) {
+  @apply outline-none ring-0;
 }
 
 /* Override browser autofill white background */

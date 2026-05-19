@@ -299,14 +299,16 @@ function MyPositionsTab() {
             <div className="col-span-2 flex gap-2">
               <button
                 type="submit"
-                className="flex-1 rounded bg-[#238636] hover:bg-[#2ea043] text-[10px] text-white font-semibold px-3 py-1.5 transition-colors focus:outline-none focus:ring-1 focus:ring-[#238636]"
+                className="flex-1 rounded bg-[#238636] hover:bg-[#2ea043] text-[10px] text-white font-semibold px-3 py-1.5 transition-colors focus:outline-none focus:ring-1 focus:ring-[#238636] inline-flex items-center justify-center gap-1"
               >
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
                 Add
               </button>
               <button
                 type="reset"
-                className="rounded border border-[#30363d] bg-transparent hover:bg-[#21262d] text-[10px] text-[#8b949e] font-medium px-2.5 py-1.5 transition-colors focus:outline-none"
+                className="rounded border border-[#30363d] bg-transparent hover:bg-[#21262d] text-[10px] text-[#8b949e] font-medium px-2.5 py-1.5 transition-colors focus:outline-none inline-flex items-center justify-center gap-1"
               >
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                 Reset
               </button>
             </div>
@@ -700,14 +702,16 @@ function MyContractsTab() {
               <div className="flex gap-2">
                 <button
                   onClick={addOrder}
-                  className="flex-1 rounded bg-[#238636] hover:bg-[#2ea043] text-[10px] text-white font-semibold px-3 py-1.5 transition-colors focus:outline-none focus:ring-1 focus:ring-[#238636]"
+                  className="flex-1 rounded bg-[#238636] hover:bg-[#2ea043] text-[10px] text-white font-semibold px-3 py-1.5 transition-colors focus:outline-none focus:ring-1 focus:ring-[#238636] inline-flex items-center justify-center gap-1"
                 >
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
                   Add
                 </button>
                 <button
                   onClick={resetForm}
-                  className="rounded border border-[#30363d] bg-transparent hover:bg-[#21262d] text-[10px] text-[#8b949e] font-medium px-2.5 py-1.5 transition-colors focus:outline-none"
+                  className="rounded border border-[#30363d] bg-transparent hover:bg-[#21262d] text-[10px] text-[#8b949e] font-medium px-2.5 py-1.5 transition-colors focus:outline-none inline-flex items-center justify-center gap-1"
                 >
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                   Reset
                 </button>
               </div>
