@@ -185,7 +185,7 @@ export async function getNews(tickers?: string[]): Promise<NewsItem[]> {
   return apiFetch<NewsItem[]>(`/api/news${qs ? `?${qs}` : ""}`);
 }
 
-export interface BatchResponse {
+interface BatchResponse {
   market_data: Record<string, StockMarketData>;
   earnings_calendar: Record<string, EarningsCalendar[]>;
   earnings_history: Record<string, EarningsResult[]>;

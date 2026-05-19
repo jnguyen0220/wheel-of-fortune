@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import type { DiscoveryItem, FinancialHealth, AnalystTrend, SearchResult, StockMarketData, OptionsChain, EarningsCalendar, EarningsResult, WheelRecommendation, PositionTransaction, OptionsOrder } from "@/lib/types";
-import { getDiscovery, getBatchData, prefetchDiscovery, searchTickers, getOptionsChains, getMarketData, getEarningsCalendar, getEarningsHistory, getRecommendations } from "@/lib/api";
+import { getDiscovery, getBatchData, prefetchDiscovery, searchTickers, getOptionsChains, getMarketData, getRecommendations } from "@/lib/api";
 import { healthScoreColor } from "@/lib/format";
 import { useLocalStorageState } from "@/lib/hooks";
 import TickerLink from "./TickerLink";
