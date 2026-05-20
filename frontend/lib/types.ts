@@ -240,6 +240,7 @@ export interface EmaPullbackSignal {
   dma_50: number;
   ema_9: number;
   ema_21: number;
+  ema_20: number;
   rsi: number;
   volume_increasing: boolean;
   candle_confirmed: boolean;

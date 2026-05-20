@@ -1,22 +1,25 @@
 //! EMA Pullback Strategy — directional CALL/PUT signal scanner.
 //!
-//! # CALLS (bullish setup)
-//! - Price above 50-DMA
-//! - 50-DMA sloping up
-//! - Pullback to 9/21 EMA
-//! - Bounce candle (close > open, low near EMA support)
+//! Optimized for wheel strategy with 14–25 DTE contracts.
+//! Uses EMA50 as trend filter and EMA20 as entry trigger.
+//!
+//! # CALLS (bullish setup — sell CSPs)
+//! - Price above EMA50 (trend filter)
+//! - EMA50 sloping up
+//! - Pullback to EMA20 (entry trigger)
+//! - Bounce candle (close > open, low near EMA20)
 //! - RSI > 50
 //! - Volume increasing
-//! - Exit: lose 9/21 EMA or approach 50-DMA from above
+//! - Exit: lose EMA20 or EMA50 flattens
 //!
-//! # PUTS (bearish setup)
-//! - Price below 50-DMA
-//! - 50-DMA sloping down
-//! - Retrace to 9/21 EMA
-//! - Rejection candle (close < open, high near EMA resistance)
+//! # PUTS (bearish setup — sell CCs)
+//! - Price below EMA50 (trend filter)
+//! - EMA50 sloping down
+//! - Retrace to EMA20 (entry trigger)
+//! - Rejection candle (close < open, high near EMA20)
 //! - RSI < 50
 //! - Volume increasing
-//! - Exit: reclaim 9/21 EMA or approach 50-DMA from below
+//! - Exit: reclaim EMA20 or EMA50 flattens
 
 use serde::Serialize;
 
@@ -53,6 +56,7 @@ fn ema_series(closes: &[f64], period: usize) -> Vec<Option<f64>> {
 }
 
 /// SMA series. Returns the SMA value at each index where enough data exists.
+#[allow(dead_code)]
 fn sma_series(closes: &[f64], period: usize) -> Vec<Option<f64>> {
     let mut result = vec![None; closes.len()];
     for i in (period - 1)..closes.len() {
@@ -131,19 +135,21 @@ pub struct EmaPullbackSignal {
     pub direction: SignalDirection,
     /// Current price.
     pub price: f64,
-    /// 50-day SMA value.
+    /// 50-period EMA value (trend filter).
     pub dma_50: f64,
-    /// 9-EMA value.
+    /// 9-EMA value (momentum confirmation).
     pub ema_9: f64,
-    /// 21-EMA value.
+    /// 21-EMA value (legacy compat; equal to ema_20 for display).
     pub ema_21: f64,
+    /// 20-EMA value (entry trigger).
+    pub ema_20: f64,
     /// Current RSI (14-period).
     pub rsi: f64,
     /// Whether volume is increasing.
     pub volume_increasing: bool,
     /// Whether the last candle is a bounce/rejection candle.
     pub candle_confirmed: bool,
-    /// 50-DMA slope direction (positive = up, negative = down).
+    /// EMA50 slope direction (positive = up, negative = down).
     pub dma_slope: f64,
     /// Number of criteria met out of 6.
     pub criteria_met: u8,
@@ -167,25 +173,26 @@ pub fn analyse(ticker: &str, candles: &[Candle]) -> Option<EmaPullbackSignal> {
     let volumes: Vec<u64> = candles.iter().map(|c| c.volume).collect();
 
     // Compute indicators.
-    let dma_50_series = sma_series(&closes, 50);
+    // EMA50 = trend filter, EMA20 = entry trigger, EMA9 = momentum confirmation
+    let ema_50_series = ema_series(&closes, 50);
+    let ema_20_series = ema_series(&closes, 20);
     let ema_9_series = ema_series(&closes, 9);
-    let ema_21_series = ema_series(&closes, 21);
 
     let n = closes.len();
     let current_price = closes[n - 1];
-    let dma_50_now = dma_50_series[n - 1]?;
-    let dma_50_prev = dma_50_series[n - 2]?;
+    let ema_50_now = ema_50_series[n - 1]?;
+    let ema_50_prev = ema_50_series[n - 2]?;
+    let ema_20_now = ema_20_series[n - 1]?;
     let ema_9_now = ema_9_series[n - 1]?;
-    let ema_21_now = ema_21_series[n - 1]?;
     let current_rsi = rsi(&closes, 14)?;
     let vol_increasing = volume_increasing(&volumes);
 
-    let dma_slope = dma_50_now - dma_50_prev;
+    let dma_slope = ema_50_now - ema_50_prev;
     let last_candle = &candles[n - 1];
 
-    // Determine direction candidate.
-    let is_bullish = current_price > dma_50_now;
-    let is_bearish = current_price < dma_50_now;
+    // Determine direction candidate using EMA50 as trend filter.
+    let is_bullish = current_price > ema_50_now;
+    let is_bearish = current_price < ema_50_now;
 
     if !is_bullish && !is_bearish {
         return None;
@@ -202,37 +209,36 @@ pub fn analyse(ticker: &str, candles: &[Candle]) -> Option<EmaPullbackSignal> {
 
     match direction {
         SignalDirection::Call => {
-            // 1. Price above 50-DMA
+            // 1. Price above EMA50 (trend filter)
             criteria_met += 1;
-            notes.push("Price above 50-DMA".to_string());
+            notes.push("Price above EMA50".to_string());
 
-            // 2. 50-DMA sloping up
+            // 2. EMA50 sloping up
             if dma_slope > 0.0 {
                 criteria_met += 1;
-                notes.push(format!("50-DMA sloping up ({:+.2}/day)", dma_slope));
+                notes.push(format!("EMA50 sloping up ({:+.2}/day)", dma_slope));
             } else {
-                notes.push(format!("50-DMA NOT sloping up ({:+.2}/day)", dma_slope));
+                notes.push(format!("EMA50 NOT sloping up ({:+.2}/day)", dma_slope));
             }
 
-            // 3. Pullback to 9/21 EMA (price near or touching EMA from above)
-            let ema_zone = ema_9_now.max(ema_21_now);
-            let proximity = (current_price - ema_zone).abs() / current_price;
-            if proximity < 0.015 || (last_candle.low <= ema_zone * 1.005) {
+            // 3. Pullback to EMA20 (entry trigger for 14-25 DTE)
+            let proximity = (current_price - ema_20_now).abs() / current_price;
+            if proximity < 0.015 || (last_candle.low <= ema_20_now * 1.005) {
                 criteria_met += 1;
                 notes.push(format!(
-                    "Pullback to EMA zone (price {:.2} near 9/21 EMA {:.2}/{:.2})",
-                    current_price, ema_9_now, ema_21_now
+                    "Pullback to EMA20 (price {:.2} near EMA20 {:.2})",
+                    current_price, ema_20_now
                 ));
             } else {
                 notes.push(format!(
-                    "Not at EMA zone ({:.1}% away)",
+                    "Not at EMA20 ({:.1}% away)",
                     proximity * 100.0
                 ));
             }
 
-            // 4. Bounce candle (bullish: close > open)
+            // 4. Bounce candle (bullish: close > open, low near EMA20)
             let is_bounce = last_candle.close > last_candle.open
-                && last_candle.low <= ema_zone * 1.01;
+                && last_candle.low <= ema_20_now * 1.01;
             if is_bounce {
                 criteria_met += 1;
                 notes.push("Bounce candle confirmed".to_string());
@@ -257,37 +263,36 @@ pub fn analyse(ticker: &str, candles: &[Candle]) -> Option<EmaPullbackSignal> {
             }
         }
         SignalDirection::Put => {
-            // 1. Price below 50-DMA
+            // 1. Price below EMA50 (trend filter)
             criteria_met += 1;
-            notes.push("Price below 50-DMA".to_string());
+            notes.push("Price below EMA50".to_string());
 
-            // 2. 50-DMA sloping down
+            // 2. EMA50 sloping down
             if dma_slope < 0.0 {
                 criteria_met += 1;
-                notes.push(format!("50-DMA sloping down ({:+.2}/day)", dma_slope));
+                notes.push(format!("EMA50 sloping down ({:+.2}/day)", dma_slope));
             } else {
-                notes.push(format!("50-DMA NOT sloping down ({:+.2}/day)", dma_slope));
+                notes.push(format!("EMA50 NOT sloping down ({:+.2}/day)", dma_slope));
             }
 
-            // 3. Retrace to 9/21 EMA (price near or touching EMA from below)
-            let ema_zone = ema_9_now.min(ema_21_now);
-            let proximity = (ema_zone - current_price).abs() / current_price;
-            if proximity < 0.015 || (last_candle.high >= ema_zone * 0.995) {
+            // 3. Retrace to EMA20 (entry trigger for 14-25 DTE)
+            let proximity = (ema_20_now - current_price).abs() / current_price;
+            if proximity < 0.015 || (last_candle.high >= ema_20_now * 0.995) {
                 criteria_met += 1;
                 notes.push(format!(
-                    "Retrace to EMA zone (price {:.2} near 9/21 EMA {:.2}/{:.2})",
-                    current_price, ema_9_now, ema_21_now
+                    "Retrace to EMA20 (price {:.2} near EMA20 {:.2})",
+                    current_price, ema_20_now
                 ));
             } else {
                 notes.push(format!(
-                    "Not at EMA zone ({:.1}% away)",
+                    "Not at EMA20 ({:.1}% away)",
                     proximity * 100.0
                 ));
             }
 
-            // 4. Rejection candle (bearish: close < open)
+            // 4. Rejection candle (bearish: close < open, high near EMA20)
             let is_rejection = last_candle.close < last_candle.open
-                && last_candle.high >= ema_zone * 0.99;
+                && last_candle.high >= ema_20_now * 0.99;
             if is_rejection {
                 criteria_met += 1;
                 notes.push("Rejection candle confirmed".to_string());
@@ -324,12 +329,12 @@ pub fn analyse(ticker: &str, candles: &[Candle]) -> Option<EmaPullbackSignal> {
 
     let exit_condition = match direction {
         SignalDirection::Call => format!(
-            "Exit if price loses 9/21 EMA ({:.2}/{:.2}) or approaches 50-DMA ({:.2}) from above",
-            ema_9_now, ema_21_now, dma_50_now
+            "Exit if price loses EMA20 ({:.2}) or EMA50 ({:.2}) flattens",
+            ema_20_now, ema_50_now
         ),
         SignalDirection::Put => format!(
-            "Exit if price reclaims 9/21 EMA ({:.2}/{:.2}) or approaches 50-DMA ({:.2}) from below",
-            ema_9_now, ema_21_now, dma_50_now
+            "Exit if price reclaims EMA20 ({:.2}) or EMA50 ({:.2}) flattens",
+            ema_20_now, ema_50_now
         ),
     };
 
@@ -337,9 +342,10 @@ pub fn analyse(ticker: &str, candles: &[Candle]) -> Option<EmaPullbackSignal> {
         ticker: ticker.to_uppercase(),
         direction,
         price: current_price,
-        dma_50: dma_50_now,
+        dma_50: ema_50_now,
         ema_9: ema_9_now,
-        ema_21: ema_21_now,
+        ema_21: ema_20_now, // backwards compat: ema_21 field carries EMA20 value
+        ema_20: ema_20_now,
         rsi: current_rsi,
         volume_increasing: vol_increasing,
         candle_confirmed,
