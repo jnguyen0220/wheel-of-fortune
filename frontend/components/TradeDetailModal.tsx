@@ -3,7 +3,7 @@
 import React, { useRef, useEffect } from "react";
 import type { FinancialHealth, AnalystTrend, StockMarketData, OptionsChain, EarningsCalendar, WheelRecommendation, PositionTransaction, OptionsOrder, EmaPullbackSignal } from "@/lib/types";
 import { getRecommendations } from "@/lib/api";
-import { healthScoreBadgeColor, verdictBadgeColor } from "@/lib/format";
+import { healthScoreBadgeColor, verdictBadgeColor, fmtCurrency, fmtSignedCurrency, fmtShares, fmtPct } from "@/lib/format";
 
 interface TradeDetailModalProps {
   ticker: string;
@@ -240,11 +240,48 @@ export default function TradeDetailModal({
             const avgBuyPrice = totalBuyQty > 0 ? totalBuyCost / totalBuyQty : 0;
             const netShares = totalBuyQty - totalSellQty;
             const netCashFlow = totalSellProceeds - totalBuyCost;
+            const marketValue = netShares * (md?.price ?? 0);
+            const costBasis = netShares * avgBuyPrice;
+            const unrealizedPnL = marketValue - costBasis;
+            const unrealizedPnLPct = costBasis > 0 ? (unrealizedPnL / costBasis) * 100 : 0;
 
             const sorted = [...txns].sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
 
             return (
               <div className="space-y-3 p-1">
+                {/* ── Position Summary Card ── */}
+                {netShares > 0 && md && (
+                  <div className="border border-[#21262d] rounded-xl overflow-hidden shadow-sm">
+                    <div className="bg-[#161b22] px-4 py-2.5 border-b border-[#21262d] flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <svg className="w-3.5 h-3.5 text-[#8b949e]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M3 3v18h18M7 16l4-4 3 3 4-4" /></svg>
+                        <span className="text-[10px] text-[#8b949e] uppercase tracking-widest font-semibold">Position Summary</span>
+                      </div>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${unrealizedPnL >= 0 ? "bg-[#238636]/15 text-[#3fb950]" : "bg-[#da3633]/15 text-[#f85149]"}`}>
+                        {fmtPct(unrealizedPnLPct)}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-4 divide-x divide-[#21262d] bg-gradient-to-b from-[#0d1117] to-[#161b22]/30">
+                      <div className="px-4 py-3 text-center">
+                        <p className="text-[9px] text-[#484f58] uppercase tracking-wide font-medium mb-1">Shares</p>
+                        <p className="text-sm font-bold text-[#f0f6fc] tabular-nums">{fmtShares(netShares)}</p>
+                      </div>
+                      <div className="px-4 py-3 text-center">
+                        <p className="text-[9px] text-[#484f58] uppercase tracking-wide font-medium mb-1">Avg Cost</p>
+                        <p className="text-sm font-bold text-[#f0f6fc] tabular-nums">{fmtCurrency(avgBuyPrice)}</p>
+                      </div>
+                      <div className="px-4 py-3 text-center">
+                        <p className="text-[9px] text-[#484f58] uppercase tracking-wide font-medium mb-1">Mkt Value</p>
+                        <p className="text-sm font-bold text-[#f0f6fc] tabular-nums">{fmtCurrency(marketValue)}</p>
+                      </div>
+                      <div className="px-4 py-3 text-center">
+                        <p className="text-[9px] text-[#484f58] uppercase tracking-wide font-medium mb-1">Unrealized P&L</p>
+                        <p className={`text-sm font-bold tabular-nums ${unrealizedPnL >= 0 ? "text-[#3fb950]" : "text-[#f85149]"}`}>{fmtSignedCurrency(unrealizedPnL)}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* ── Inline Add Form ── */}
                 <form onSubmit={addTxn} className="border border-[#21262d] rounded-xl overflow-hidden shadow-sm">
                   <div className="bg-[#161b22] px-4 py-2.5 border-b border-[#21262d] flex items-center justify-between">
@@ -354,9 +391,9 @@ export default function TradeDetailModal({
                                 </span>
                               </td>
                               <td className="px-2.5 py-1.5 text-[#8b949e] tabular-nums">{t.date}</td>
-                              <td className={`px-2.5 py-1.5 text-right tabular-nums font-medium ${isBuy ? "text-[#3fb950]" : "text-[#f85149]"}`}>{isBuy ? "+" : "-"}{t.quantity}</td>
-                              <td className="px-2.5 py-1.5 text-right text-[#c9d1d9] tabular-nums">${t.price.toFixed(2)}</td>
-                              <td className={`px-2.5 py-1.5 text-right tabular-nums font-semibold ${isBuy ? "text-[#f85149]" : "text-[#3fb950]"}`}>{isBuy ? "-" : "+"}${(t.quantity * t.price).toLocaleString(undefined, {maximumFractionDigits: 2})}</td>
+                              <td className={`px-2.5 py-1.5 text-right tabular-nums font-medium ${isBuy ? "text-[#3fb950]" : "text-[#f85149]"}`}>{isBuy ? "+" : "-"}{fmtShares(t.quantity)}</td>
+                              <td className="px-2.5 py-1.5 text-right text-[#c9d1d9] tabular-nums">{fmtCurrency(t.price)}</td>
+                              <td className={`px-2.5 py-1.5 text-right tabular-nums font-semibold ${isBuy ? "text-[#f85149]" : "text-[#3fb950]"}`}>{isBuy ? "-" : "+"}{fmtCurrency(t.quantity * t.price)}</td>
                               <td className="px-1 py-1.5 text-center">
                                 <button
                                   onClick={() => deleteTxn(t.id)}
@@ -375,10 +412,10 @@ export default function TradeDetailModal({
                       <tfoot>
                         <tr className="border-t border-[#30363d] bg-[#161b22]/80">
                           <td className="px-2.5 py-2 text-[9px] font-bold text-[#8b949e] uppercase" colSpan={2}>Net Position</td>
-                          <td className={`px-2.5 py-2 text-right tabular-nums font-bold ${netShares > 0 ? "text-[#f0f6fc]" : netShares < 0 ? "text-[#f85149]" : "text-[#484f58]"}`}>{netShares}</td>
-                          <td className="px-2.5 py-2 text-right text-[#8b949e] tabular-nums">{avgBuyPrice > 0 ? `$${avgBuyPrice.toFixed(2)}` : "—"}</td>
+                          <td className={`px-2.5 py-2 text-right tabular-nums font-bold ${netShares > 0 ? "text-[#f0f6fc]" : netShares < 0 ? "text-[#f85149]" : "text-[#484f58]"}`}>{fmtShares(netShares)}</td>
+                          <td className="px-2.5 py-2 text-right text-[#8b949e] tabular-nums">{avgBuyPrice > 0 ? fmtCurrency(avgBuyPrice) : "—"}</td>
                           <td className={`px-2.5 py-2 text-right tabular-nums font-bold ${netCashFlow >= 0 ? "text-[#3fb950]" : "text-[#f85149]"}`}>
-                            {netCashFlow >= 0 ? "+" : ""}${netCashFlow.toLocaleString(undefined, {maximumFractionDigits: 2})}
+                            {fmtSignedCurrency(netCashFlow)}
                           </td>
                           <td></td>
                         </tr>

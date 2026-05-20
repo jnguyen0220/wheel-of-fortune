@@ -12,13 +12,6 @@ export interface StockHolding {
   current_price: number;
 }
 
-export interface StockHoldingInput {
-  ticker: string;
-  shares: number;
-  cost_basis: number;
-  current_price: number;
-}
-
 export interface Inventory {
   holdings: StockHolding[];
 }

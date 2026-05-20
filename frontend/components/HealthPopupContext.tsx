@@ -294,15 +294,6 @@ export function SummaryTab({ health }: { health?: FinancialHealth }) {
   );
 }
 
-function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-4">
-      <h4 className="text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider mb-2">{title}</h4>
-      {children}
-    </div>
-  );
-}
-
 function EmptyState({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex items-center justify-center py-8 text-xs text-[#484f58]">

@@ -12,7 +12,7 @@ export default function TickerLink({ ticker, className }: TickerLinkProps) {
   return (
     <button
       type="button"
-      onClick={() => openHealthPopup(ticker)}
+      onClick={(e) => { e.stopPropagation(); openHealthPopup(ticker); }}
       className={className ?? "text-[#58a6ff] hover:underline font-bold cursor-pointer"}
     >
       {ticker}

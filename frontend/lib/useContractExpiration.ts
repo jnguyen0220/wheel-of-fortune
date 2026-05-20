@@ -19,7 +19,7 @@ import { useLocalStorageState } from "./hooks";
  */
 export function useContractExpiration() {
   const [orders, setOrders] = useLocalStorageState<OptionsOrder[]>("wof-orders", []);
-  const [positions, setPositions] = useLocalStorageState<Record<string, PositionTransaction[]>>("wof-positions", {});
+  const [, setPositions] = useLocalStorageState<Record<string, PositionTransaction[]>>("wof-positions", {});
   const isRunning = useRef(false);
 
   const processExpiredOrders = useCallback(async () => {

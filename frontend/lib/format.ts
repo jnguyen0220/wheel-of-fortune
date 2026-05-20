@@ -1,27 +1,4 @@
-import type { AnalystTrend, EarningsCalendar } from "./types";
-
-// ── Analyst consensus helper ─────────────────────────────────────────────────
-
-/**
- * Compute analyst consensus from trend data.
- * Returns null if no valid data.
- */
-export function analystConsensus(
-  trends: AnalystTrend[] | undefined,
-): { label: string; bullish: number; hold: number; bearish: number; total: number; color: string; title: string } | null {
-  const current = trends?.find(t => t.period === "0m") ?? trends?.[0];
-  if (!current) return null;
-  const bullish = current.strong_buy + current.buy;
-  const bearish = current.sell + current.strong_sell;
-  const total = bullish + current.hold + bearish;
-  if (total === 0) return null;
-  const label = bullish > bearish + current.hold ? "Buy" : bearish > bullish ? "Sell" : "Hold";
-  const color = label === "Buy" ? "text-[#3fb950] bg-[#3fb95015] border-[#3fb95040]"
-    : label === "Sell" ? "text-[#f85149] bg-[#f8514915] border-[#f8514940]"
-    : "text-[#8b949e] bg-[#8b949e15] border-[#8b949e40]";
-  const title = `${current.strong_buy} Strong Buy · ${current.buy} Buy · ${current.hold} Hold · ${current.sell} Sell · ${current.strong_sell} Strong Sell`;
-  return { label, bullish, hold: current.hold, bearish, total, color, title };
-}
+import type { EarningsCalendar } from "./types";
 
 // ── Health score color helpers ───────────────────────────────────────────────
 
@@ -102,4 +79,37 @@ export function earningsDotInfo(
   if (days === undefined || days > 14) return null;
   const color = days <= 7 ? "bg-[#f85149]" : "bg-[#d29922]";
   return { show: true, color, days };
+}
+
+// ── Number formatting helpers ────────────────────────────────────────────────
+
+/**
+ * Format a number as USD currency: $1,234.56
+ */
+export function fmtCurrency(value: number): string {
+  return value.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/**
+ * Format a number as signed USD: +$1,234.56 or -$1,234.56
+ */
+export function fmtSignedCurrency(value: number): string {
+  const abs = Math.abs(value);
+  const formatted = abs.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return value >= 0 ? `+${formatted}` : `-${formatted}`;
+}
+
+/**
+ * Format shares/quantity with commas: 1,000
+ */
+export function fmtShares(value: number): string {
+  return value.toLocaleString("en-US", { minimumFractionDigits: value % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 });
+}
+
+/**
+ * Format a percentage: +12.34% or -5.67%
+ */
+export function fmtPct(value: number): string {
+  const sign = value >= 0 ? "+" : "";
+  return `${sign}${value.toFixed(2)}%`;
 }

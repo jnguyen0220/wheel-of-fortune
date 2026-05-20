@@ -1,7 +1,4 @@
 import type {
-  Inventory,
-  StockHolding,
-  StockHoldingInput,
   StockMarketData,
   RecommendationRequest,
   RecommendationResponse,
@@ -60,39 +57,6 @@ async function apiFetch<T>(
   }
 
   return promise;
-}
-
-// ── Inventory API ────────────────────────────────────────────────────────────
-
-export async function getInventory(): Promise<Inventory> {
-  return apiFetch<Inventory>("/api/inventory");
-}
-
-export async function addHolding(
-  input: StockHoldingInput,
-): Promise<StockHolding> {
-  return apiFetch<StockHolding>("/api/inventory", {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
-}
-
-export async function updateHolding(
-  id: string,
-  input: StockHoldingInput,
-): Promise<StockHolding> {
-  return apiFetch<StockHolding>(`/api/inventory/${id}`, {
-    method: "PUT",
-    body: JSON.stringify(input),
-  });
-}
-
-export async function deleteHolding(id: string): Promise<void> {
-  await apiFetch<void>(`/api/inventory/${id}`, { method: "DELETE" });
-}
-
-export async function clearAllHoldings(): Promise<void> {
-  await apiFetch<void>(`/api/inventory`, { method: "DELETE" });
 }
 
 // ── Market Data API ──────────────────────────────────────────────────────────

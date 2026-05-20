@@ -45,8 +45,6 @@ struct YahooQuoteResponseInner {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct YahooQuoteResult {
-    #[allow(dead_code)]
-    symbol: Option<String>,
     regular_market_price: Option<f64>,
     regular_market_day_high: Option<f64>,
     regular_market_day_low: Option<f64>,

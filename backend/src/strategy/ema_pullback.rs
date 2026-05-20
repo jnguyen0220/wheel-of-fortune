@@ -27,15 +27,6 @@ use crate::models::Candle;
 
 // ── Technical Indicator Calculations ──────────────────────────────────────────
 
-/// Simple Moving Average over the last `period` closes.
-#[allow(dead_code)]
-fn sma(closes: &[f64], period: usize) -> Option<f64> {
-    if closes.len() < period {
-        return None;
-    }
-    let slice = &closes[closes.len() - period..];
-    Some(slice.iter().sum::<f64>() / period as f64)
-}
 
 /// Exponential Moving Average series. Returns a Vec of the same length as
 /// `closes`, with `None` for the warm-up period.
@@ -51,17 +42,6 @@ fn ema_series(closes: &[f64], period: usize) -> Vec<Option<f64>> {
     for i in period..closes.len() {
         let prev = result[i - 1].unwrap_or(seed);
         result[i] = Some(closes[i] * k + prev * (1.0 - k));
-    }
-    result
-}
-
-/// SMA series. Returns the SMA value at each index where enough data exists.
-#[allow(dead_code)]
-fn sma_series(closes: &[f64], period: usize) -> Vec<Option<f64>> {
-    let mut result = vec![None; closes.len()];
-    for i in (period - 1)..closes.len() {
-        let slice = &closes[i + 1 - period..=i];
-        result[i] = Some(slice.iter().sum::<f64>() / period as f64);
     }
     result
 }
