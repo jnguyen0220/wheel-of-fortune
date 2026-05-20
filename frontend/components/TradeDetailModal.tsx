@@ -83,8 +83,8 @@ export default function TradeDetailModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-[90vw] max-w-4xl h-[75vh] bg-[#0d1117] border border-[#30363d] rounded-xl shadow-2xl flex flex-col overflow-hidden">
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-[90vw] max-w-4xl h-[75vh] bg-[#0d1117] border border-[#30363d] rounded-2xl shadow-2xl shadow-black/50 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         {/* Modal header */}
         <div className="bg-[#161b22] px-6 py-4 border-b border-[#21262d] shrink-0">
           {(() => {
@@ -153,8 +153,8 @@ export default function TradeDetailModal({
                       </div>
                     </div>
                   )}
-                  <div className="h-4 w-px bg-[#21262d]" />
-                  <button onClick={onClose} className="p-1.5 rounded-md text-[#484f58] hover:text-[#c9d1d9] hover:bg-[#21262d] transition">
+                  <div className="h-5 w-px bg-[#21262d]" />
+                  <button onClick={onClose} className="p-2 rounded-lg text-[#484f58] hover:text-[#f0f6fc] hover:bg-[#21262d] transition-all" title="Close">
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                     </svg>
@@ -246,35 +246,38 @@ export default function TradeDetailModal({
             return (
               <div className="space-y-3 p-1">
                 {/* ── Inline Add Form ── */}
-                <form onSubmit={addTxn} className="border border-[#21262d] rounded-lg overflow-hidden">
-                  <div className="bg-[#161b22] px-3 py-1.5 border-b border-[#21262d] flex items-center justify-between">
-                    <span className="text-[9px] text-[#484f58] uppercase tracking-widest font-bold">New Transaction</span>
+                <form onSubmit={addTxn} className="border border-[#21262d] rounded-xl overflow-hidden shadow-sm">
+                  <div className="bg-[#161b22] px-4 py-2.5 border-b border-[#21262d] flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 rounded-full bg-[#3fb950] animate-pulse" />
+                      <span className="text-[10px] text-[#8b949e] uppercase tracking-widest font-semibold">New Transaction</span>
+                    </div>
                   </div>
-                  <div className="flex items-end gap-1.5 px-2.5 py-2 bg-[#0d1117]">
-                    <div className="flex-none w-16">
-                      <label className="text-[8px] text-[#484f58] uppercase tracking-wide block mb-0.5">Type</label>
+                  <div className="flex items-end gap-2.5 px-4 py-3.5 bg-gradient-to-b from-[#0d1117] to-[#161b22]/30">
+                    <div className="flex-none w-[72px]">
+                      <label className="text-[9px] text-[#8b949e] font-medium block mb-1">Type</label>
                       <select
                         name="type"
                         defaultValue=""
-                        className="w-full rounded border border-[#30363d] bg-[#161b22] text-[10px] text-[#c9d1d9] px-1.5 py-1 focus:outline-none focus:border-[#58a6ff]"
+                        className="w-full rounded-md border border-[#30363d] bg-[#0d1117] text-[11px] text-[#c9d1d9] px-2 py-1.5 focus:outline-none focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff]/30 transition-all"
                         required
                       >
-                        <option value="" disabled>—</option>
+                        <option value="" disabled>Select</option>
                         <option value="buy">Buy</option>
                         <option value="sell">Sell</option>
                       </select>
                     </div>
                     <div className="flex-1 min-w-0">
-                      <label className="text-[8px] text-[#484f58] uppercase tracking-wide block mb-0.5">Date</label>
+                      <label className="text-[9px] text-[#8b949e] font-medium block mb-1">Date</label>
                       <input
                         name="date"
                         type="date"
                         defaultValue={today}
-                        className="w-full rounded border border-[#30363d] bg-[#161b22] text-[10px] text-[#c9d1d9] px-1.5 py-1 focus:outline-none focus:border-[#58a6ff]"
+                        className="w-full rounded-md border border-[#30363d] bg-[#0d1117] text-[11px] text-[#c9d1d9] px-2 py-1.5 focus:outline-none focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff]/30 transition-all"
                       />
                     </div>
-                    <div className="flex-none w-16">
-                      <label className="text-[8px] text-[#484f58] uppercase tracking-wide block mb-0.5">Qty</label>
+                    <div className="flex-none w-[72px]">
+                      <label className="text-[9px] text-[#8b949e] font-medium block mb-1">Shares</label>
                       <input
                         name="quantity"
                         type="number"
@@ -282,45 +285,50 @@ export default function TradeDetailModal({
                         step="0.01"
                         placeholder="0"
                         required
-                        className="w-full rounded border border-[#30363d] bg-[#161b22] text-[10px] text-[#c9d1d9] px-1.5 py-1 tabular-nums focus:outline-none focus:border-[#58a6ff]"
+                        className="w-full rounded-md border border-[#30363d] bg-[#0d1117] text-[11px] text-[#c9d1d9] px-2 py-1.5 tabular-nums focus:outline-none focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff]/30 transition-all"
                       />
                     </div>
-                    <div className="flex-none w-20">
-                      <label className="text-[8px] text-[#484f58] uppercase tracking-wide block mb-0.5">Price</label>
-                      <input
-                        name="price"
-                        type="number"
-                        min="0.01"
-                        step="0.01"
-                        defaultValue={defaultPrice > 0 ? defaultPrice.toFixed(2) : ""}
-                        placeholder="$0.00"
-                        required
-                        className="w-full rounded border border-[#30363d] bg-[#161b22] text-[10px] text-[#c9d1d9] px-1.5 py-1 tabular-nums focus:outline-none focus:border-[#58a6ff]"
-                      />
+                    <div className="flex-none w-[88px]">
+                      <label className="text-[9px] text-[#8b949e] font-medium block mb-1">Price</label>
+                      <div className="relative">
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-[#484f58]">$</span>
+                        <input
+                          name="price"
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          defaultValue={defaultPrice > 0 ? defaultPrice.toFixed(2) : ""}
+                          placeholder="0.00"
+                          required
+                          className="w-full rounded-md border border-[#30363d] bg-[#0d1117] text-[11px] text-[#c9d1d9] pl-5 pr-2 py-1.5 tabular-nums focus:outline-none focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff]/30 transition-all"
+                        />
+                      </div>
                     </div>
-                    <button
-                      type="submit"
-                      className="flex-none px-2.5 py-1 rounded bg-[#238636] hover:bg-[#2ea043] border border-[#238636] text-[10px] font-semibold text-white transition-colors flex items-center gap-1"
-                    >
-                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-                      Add
-                    </button>
-                    <button
-                      type="reset"
-                      className="flex-none px-2.5 py-1 rounded bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] text-[10px] font-semibold text-[#8b949e] transition-colors flex items-center gap-1"
-                    >
-                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
-                      Reset
-                    </button>
+                    <div className="flex-none flex items-center gap-1.5 pt-5">
+                      <button
+                        type="submit"
+                        className="px-3 py-1.5 rounded-md bg-[#238636] hover:bg-[#2ea043] text-[11px] font-semibold text-white transition-all shadow-sm hover:shadow-md hover:shadow-[#238636]/20 flex items-center gap-1.5"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                        Add
+                      </button>
+                      <button
+                        type="reset"
+                        className="px-2.5 py-1.5 rounded-md bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] text-[11px] font-medium text-[#8b949e] hover:text-[#c9d1d9] transition-all flex items-center gap-1"
+                      >
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
+                        Clear
+                      </button>
+                    </div>
                   </div>
                 </form>
 
                 {/* ── Transactions Ledger ── */}
                 {txns.length > 0 ? (
-                  <div className="border border-[#21262d] rounded-lg overflow-hidden">
-                    <div className="bg-[#161b22] px-3 py-1.5 border-b border-[#21262d] flex items-center justify-between">
-                      <span className="text-[9px] text-[#484f58] uppercase tracking-widest font-bold">Transactions</span>
-                      <span className="text-[9px] text-[#30363d]">{txns.length} entries</span>
+                  <div className="border border-[#21262d] rounded-xl overflow-hidden shadow-sm">
+                    <div className="bg-[#161b22] px-4 py-2.5 border-b border-[#21262d] flex items-center justify-between">
+                      <span className="text-[10px] text-[#8b949e] uppercase tracking-widest font-semibold">Transaction History</span>
+                      <span className="text-[9px] text-[#484f58] bg-[#21262d] px-2 py-0.5 rounded-full tabular-nums">{txns.length} {txns.length === 1 ? "entry" : "entries"}</span>
                     </div>
                     <table className="w-full text-[10px]">
                       <thead>
@@ -378,12 +386,14 @@ export default function TradeDetailModal({
                     </table>
                   </div>
                 ) : (
-                  <div className="flex flex-col items-center justify-center gap-1.5 py-10 border border-[#21262d] rounded-lg bg-[#161b22]/30">
-                    <svg className="w-6 h-6 text-[#30363d]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
-                    </svg>
-                    <p className="text-[10px] text-[#484f58]">No transactions for {selectedWatch}</p>
-                    <p className="text-[9px] text-[#30363d]">Add a buy or sell above to start tracking</p>
+                  <div className="flex flex-col items-center justify-center gap-2 py-12 border border-dashed border-[#21262d] rounded-xl bg-[#161b22]/20">
+                    <div className="w-10 h-10 rounded-full bg-[#161b22] border border-[#30363d] flex items-center justify-center">
+                      <svg className="w-5 h-5 text-[#484f58]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
+                      </svg>
+                    </div>
+                    <p className="text-[11px] text-[#8b949e] font-medium">No transactions for {selectedWatch}</p>
+                    <p className="text-[10px] text-[#484f58]">Add a buy or sell above to start tracking your position</p>
                   </div>
                 )}
               </div>
@@ -671,7 +681,7 @@ export default function TradeDetailModal({
                     <div className="flex flex-col h-full min-h-0">
                       {/* Filter bar */}
                       <form
-                        className="flex items-end gap-3 pb-3 border-b border-[#21262d] mb-3 shrink-0"
+                        className="flex items-end gap-3 p-3 border border-[#21262d] rounded-xl bg-[#161b22]/50 mb-4 shrink-0"
                         onSubmit={(e) => {
                           e.preventDefault();
                           const fd = new FormData(e.currentTarget);
@@ -684,27 +694,31 @@ export default function TradeDetailModal({
                         }}
                       >
                         <div>
-                          <label className="block text-[9px] text-[#484f58] uppercase tracking-wider mb-1">DTE Min</label>
-                          <input name="dte_min" type="number" defaultValue={14} className="w-16 bg-[#0d1117] border border-[#30363d] rounded px-2 py-1 text-[11px] text-[#c9d1d9] tabular-nums focus:outline-none focus:border-[#58a6ff]" />
+                          <label className="block text-[9px] text-[#8b949e] font-medium uppercase tracking-wider mb-1.5">DTE Min</label>
+                          <input name="dte_min" type="number" defaultValue={14} className="w-16 bg-[#0d1117] border border-[#30363d] rounded-md px-2 py-1.5 text-[11px] text-[#c9d1d9] tabular-nums focus:outline-none focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff]/30 transition-all" />
                         </div>
                         <div>
-                          <label className="block text-[9px] text-[#484f58] uppercase tracking-wider mb-1">DTE Max</label>
-                          <input name="dte_max" type="number" defaultValue={45} className="w-16 bg-[#0d1117] border border-[#30363d] rounded px-2 py-1 text-[11px] text-[#c9d1d9] tabular-nums focus:outline-none focus:border-[#58a6ff]" />
+                          <label className="block text-[9px] text-[#8b949e] font-medium uppercase tracking-wider mb-1.5">DTE Max</label>
+                          <input name="dte_max" type="number" defaultValue={45} className="w-16 bg-[#0d1117] border border-[#30363d] rounded-md px-2 py-1.5 text-[11px] text-[#c9d1d9] tabular-nums focus:outline-none focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff]/30 transition-all" />
                         </div>
                         <div>
-                          <label className="block text-[9px] text-[#484f58] uppercase tracking-wider mb-1">Min OI</label>
-                          <input name="min_oi" type="number" defaultValue={100} className="w-20 bg-[#0d1117] border border-[#30363d] rounded px-2 py-1 text-[11px] text-[#c9d1d9] tabular-nums focus:outline-none focus:border-[#58a6ff]" />
+                          <label className="block text-[9px] text-[#8b949e] font-medium uppercase tracking-wider mb-1.5">Min OI</label>
+                          <input name="min_oi" type="number" defaultValue={100} className="w-20 bg-[#0d1117] border border-[#30363d] rounded-md px-2 py-1.5 text-[11px] text-[#c9d1d9] tabular-nums focus:outline-none focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff]/30 transition-all" />
                         </div>
                         <div>
-                          <label className="block text-[9px] text-[#484f58] uppercase tracking-wider mb-1">Max Assign %</label>
-                          <input name="assign_pct" type="number" defaultValue={30} min={1} max={100} className="w-16 bg-[#0d1117] border border-[#30363d] rounded px-2 py-1 text-[11px] text-[#c9d1d9] tabular-nums focus:outline-none focus:border-[#58a6ff]" />
+                          <label className="block text-[9px] text-[#8b949e] font-medium uppercase tracking-wider mb-1.5">Max Assign %</label>
+                          <input name="assign_pct" type="number" defaultValue={30} min={1} max={100} className="w-16 bg-[#0d1117] border border-[#30363d] rounded-md px-2 py-1.5 text-[11px] text-[#c9d1d9] tabular-nums focus:outline-none focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff]/30 transition-all" />
                         </div>
                         <button
                           type="submit"
                           disabled={watchRecsLoading}
-                          className="px-3 py-1 text-[11px] font-medium rounded bg-[#238636] text-white hover:bg-[#2ea043] transition-colors disabled:opacity-50"
+                          className="px-4 py-1.5 text-[11px] font-semibold rounded-md bg-[#238636] text-white hover:bg-[#2ea043] transition-all shadow-sm hover:shadow-md hover:shadow-[#238636]/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
                         >
-                          {watchRecsLoading ? "Running…" : "Generate"}
+                          {watchRecsLoading ? (
+                            <><div className="w-3 h-3 rounded-full border-2 border-white/30 border-t-white animate-spin" />Running…</>
+                          ) : (
+                            <><svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z" /></svg>Generate</>
+                          )}
                         </button>
                       </form>
 
@@ -863,30 +877,37 @@ export default function TradeDetailModal({
             const tickerOrders = orders.filter(o => o.ticker === selectedWatch && o.status !== "closed");
             const currentPrice = watchBatch.market_data[selectedWatch]?.price ?? 0;
             return (
-              <div className="p-3 space-y-2">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-[10px] font-bold text-[#c9d1d9] uppercase tracking-widest">Contracts</span>
-                  <span className="text-[9px] text-[#484f58]">{tickerOrders.length} orders</span>
+              <div className="p-3 space-y-3">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-semibold text-[#c9d1d9] uppercase tracking-widest">Active Contracts</span>
+                  </div>
+                  <span className="text-[9px] text-[#484f58] bg-[#21262d] px-2 py-0.5 rounded-full tabular-nums">{tickerOrders.length} {tickerOrders.length === 1 ? "order" : "orders"}</span>
                 </div>
                 {tickerOrders.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center gap-2 py-12">
-                    <p className="text-[11px] text-[#484f58]">No contracts yet</p>
-                    <p className="text-[9px] text-[#30363d]">Use + buttons on Chain or Recommendation tabs</p>
+                  <div className="flex flex-col items-center justify-center gap-2 py-12 border border-dashed border-[#21262d] rounded-xl bg-[#161b22]/20">
+                    <div className="w-10 h-10 rounded-full bg-[#161b22] border border-[#30363d] flex items-center justify-center">
+                      <svg className="w-5 h-5 text-[#484f58]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15a2.25 2.25 0 0 1 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25Z" />
+                      </svg>
+                    </div>
+                    <p className="text-[11px] text-[#8b949e] font-medium">No contracts yet</p>
+                    <p className="text-[10px] text-[#484f58]">Use + buttons on Chain or Recommendation tabs</p>
                   </div>
                 ) : (
-                  <div className="border border-[#21262d] rounded overflow-hidden">
+                  <div className="border border-[#21262d] rounded-xl overflow-hidden shadow-sm">
                     <table className="w-full text-[10px]">
                       <thead>
-                        <tr className="bg-[#161b22] text-[#484f58]">
-                          <th className="px-2 py-1.5 text-left font-medium">Type</th>
-                          <th className="px-2 py-1.5 text-right font-medium">Strike</th>
-                          <th className="px-2 py-1.5 text-right font-medium">Exp</th>
-                          <th className="px-2 py-1.5 text-right font-medium">DTE</th>
-                          <th className="px-2 py-1.5 text-right font-medium">Qty</th>
-                          <th className="px-2 py-1.5 text-right font-medium">Premium</th>
-                          <th className="px-2 py-1.5 text-right font-medium">Intrinsic</th>
-                          <th className="px-2 py-1.5 text-center font-medium">Status</th>
-                          <th className="px-2 py-1.5 text-center font-medium"></th>
+                        <tr className="bg-[#161b22] text-[#8b949e]">
+                          <th className="px-3 py-2 text-left text-[9px] font-semibold uppercase tracking-wider">Type</th>
+                          <th className="px-3 py-2 text-right text-[9px] font-semibold uppercase tracking-wider">Strike</th>
+                          <th className="px-3 py-2 text-right text-[9px] font-semibold uppercase tracking-wider">Exp</th>
+                          <th className="px-3 py-2 text-right text-[9px] font-semibold uppercase tracking-wider">DTE</th>
+                          <th className="px-3 py-2 text-right text-[9px] font-semibold uppercase tracking-wider">Qty</th>
+                          <th className="px-3 py-2 text-right text-[9px] font-semibold uppercase tracking-wider">Premium</th>
+                          <th className="px-3 py-2 text-right text-[9px] font-semibold uppercase tracking-wider">Intrinsic</th>
+                          <th className="px-3 py-2 text-center text-[9px] font-semibold uppercase tracking-wider">Status</th>
+                          <th className="px-2 py-2 text-center"></th>
                         </tr>
                       </thead>
                       <tbody>
@@ -897,14 +918,14 @@ export default function TradeDetailModal({
                             : Math.max(0, o.strike - currentPrice);
                           return (
                             <tr key={o.id} className="border-t border-[#21262d]/30 hover:bg-[#161b22]/60 transition-colors">
-                              <td className="px-2 py-1.5 font-medium">
-                                <span className={o.leg === "CC" ? "text-[#58a6ff]" : "text-[#d29922]"}>{o.leg}</span>
-                                <span className="text-[#484f58] ml-1 text-[9px]">{o.option_type}</span>
+                              <td className="px-3 py-2 font-medium">
+                                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold ${o.leg === "CC" ? "bg-[#58a6ff]/10 text-[#58a6ff]" : "bg-[#d29922]/10 text-[#d29922]"}`}>{o.leg}</span>
+                                <span className="text-[#484f58] ml-1.5 text-[9px]">{o.option_type}</span>
                               </td>
-                              <td className="px-2 py-1.5 text-right text-[#f0f6fc] font-medium tabular-nums">${o.strike.toFixed(1)}</td>
-                              <td className="px-2 py-1.5 text-right text-[#8b949e] tabular-nums">{o.expiration}</td>
-                              <td className={`px-2 py-1.5 text-right tabular-nums ${dte <= 7 ? "text-[#f85149] font-semibold" : dte <= 14 ? "text-[#d29922]" : "text-[#8b949e]"}`}>{dte}d</td>
-                              <td className="px-2 py-1 text-right">
+                              <td className="px-3 py-2 text-right text-[#f0f6fc] font-medium tabular-nums">${o.strike.toFixed(1)}</td>
+                              <td className="px-3 py-2 text-right text-[#8b949e] tabular-nums">{o.expiration}</td>
+                              <td className={`px-3 py-2 text-right tabular-nums ${dte <= 7 ? "text-[#f85149] font-semibold" : dte <= 14 ? "text-[#d29922]" : "text-[#8b949e]"}`}>{dte}d</td>
+                              <td className="px-3 py-1.5 text-right">
                                 <input
                                   type="number"
                                   min={1}
@@ -913,14 +934,14 @@ export default function TradeDetailModal({
                                     const val = Math.max(1, parseInt(e.target.value) || 1);
                                     setOrders(prev => prev.map(x => x.id === o.id ? { ...x, contracts: val } : x));
                                   }}
-                                  className="w-10 bg-[#0d1117] border border-[#21262d] rounded px-1 py-0.5 text-right text-[10px] text-[#c9d1d9] tabular-nums focus:border-[#58a6ff] focus:outline-none"
+                                  className="w-12 bg-[#0d1117] border border-[#21262d] rounded-md px-1.5 py-1 text-right text-[10px] text-[#c9d1d9] tabular-nums focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff]/30 focus:outline-none transition-all"
                                 />
                               </td>
-                              <td className="px-2 py-1.5 text-right text-[#3fb950] font-semibold tabular-nums">${(o.premium * o.contracts * 100).toFixed(0)}</td>
-                              <td className={`px-2 py-1.5 text-right tabular-nums ${intrinsic > 0 ? "text-[#f85149] font-semibold" : "text-[#484f58]"}`}>
+                              <td className="px-3 py-2 text-right text-[#3fb950] font-semibold tabular-nums">${(o.premium * o.contracts * 100).toFixed(0)}</td>
+                              <td className={`px-3 py-2 text-right tabular-nums ${intrinsic > 0 ? "text-[#f85149] font-semibold" : "text-[#484f58]"}`}>
                                 {intrinsic > 0 ? `$${intrinsic.toFixed(2)}` : "OTM"}
                               </td>
-                              <td className="px-2 py-1.5 text-center">
+                              <td className="px-3 py-2 text-center">
                                 <select
                                   value={o.status}
                                   onChange={e => {
@@ -929,7 +950,7 @@ export default function TradeDetailModal({
                                       openCloseModal(o);
                                     }
                                   }}
-                                  className={`rounded border border-[#21262d] bg-[#0d1117] text-[9px] font-bold px-1 py-0.5 focus:outline-none focus:border-[#58a6ff] cursor-pointer ${
+                                  className={`rounded-md border border-[#21262d] bg-[#0d1117] text-[9px] font-bold px-1.5 py-1 focus:outline-none focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff]/30 cursor-pointer transition-all ${
                                     o.status === "open" ? "text-[#58a6ff]" : "text-[#484f58]"
                                   }`}
                                 >
