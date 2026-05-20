@@ -12,6 +12,7 @@ import type {
 import {
   getBatchData,
   getNews,
+  type BatchResponse,
 } from "@/lib/api";
 import { healthScoreBadgeColor, verdictBadgeColor } from "@/lib/format";
 
@@ -53,7 +54,7 @@ export function HealthPopupProvider({ children }: { children: React.ReactNode })
       fetchingRef.current.add(t);
       setLoading(true);
       Promise.all([
-        getBatchData([t]).catch(() => ({ market_data: {}, earnings_calendar: {}, earnings_history: {}, analyst_trends: {}, financials: {} })),
+        getBatchData([t]).catch((): BatchResponse => ({ market_data: {}, earnings_calendar: {}, earnings_history: {}, analyst_trends: {}, financials: {} })),
         getNews([t]).catch(() => [] as NewsItem[]),
       ]).then(([batch, news]) => {
         setCache((prev) => ({
