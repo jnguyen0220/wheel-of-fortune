@@ -2,7 +2,7 @@
 
 import React from "react";
 import type { DiscoveryItem, FinancialHealth, AnalystTrend } from "@/lib/types";
-import { healthScoreColor } from "@/lib/format";
+import { healthScoreColor, analystConsensus } from "@/lib/format";
 import TickerLink from "../TickerLink";
 import type { SortField, SortDir } from "./constants";
 
@@ -23,31 +23,17 @@ interface ResultsTableProps {
 }
 
 function renderRatingCell(item: DiscoveryItem, currentAnalystData: Record<string, AnalystTrend[]>) {
-  let label = "";
-  let score = NaN;
-  if (item.analyst_rating) {
-    const parts = item.analyst_rating.split(" - ");
-    score = parseFloat(parts[0]);
-    label = parts[1] || "";
-  } else {
-    const trends = currentAnalystData[item.ticker];
-    const cur = trends?.find(t => t.period === "0m");
-    if (cur) {
-      const total = cur.strong_buy + cur.buy + cur.hold + cur.sell + cur.strong_sell;
-      if (total > 0) {
-        score = (cur.strong_buy * 1 + cur.buy * 2 + cur.hold * 3 + cur.sell * 4 + cur.strong_sell * 5) / total;
-        label = score <= 1.5 ? "Strong Buy" : score <= 2.5 ? "Buy" : score <= 3.5 ? "Hold" : score <= 4.5 ? "Underperform" : "Sell";
-      }
-    }
-  }
-  if (!label) return <span className="text-[10px] text-[#484f58]">—</span>;
-  const color = score <= 1.5 ? "text-[#3fb950] bg-[#3fb95010]"
-    : score <= 2.5 ? "text-[#58a6ff] bg-[#58a6ff10]"
-    : score <= 3.5 ? "text-[#d29922] bg-[#d2992210]"
-    : "text-[#f85149] bg-[#f8514910]";
+  const trends = currentAnalystData[item.ticker];
+  const cur = trends?.find(t => t.period === "0m") || trends?.[0];
+  const ac = analystConsensus(cur);
+  if (ac.total === 0) return <span className="text-[10px] text-[#484f58]">—</span>;
+  const bgColor = ac.score >= 4.5 ? "bg-[#3fb95010]"
+    : ac.score >= 3.5 ? "bg-[#58a6ff10]"
+    : ac.score >= 2.5 ? "bg-[#d2992210]"
+    : "bg-[#f8514910]";
   return (
-    <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded ${color}`} title={`${score.toFixed(1)} - ${label}`}>
-      {label}
+    <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded ${ac.color} ${bgColor}`} title={`${ac.score.toFixed(1)} - ${ac.label}`}>
+      {ac.label}
     </span>
   );
 }

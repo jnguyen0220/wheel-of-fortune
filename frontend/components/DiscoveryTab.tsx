@@ -6,12 +6,12 @@ import { getDiscovery, getBatchData, prefetchDiscovery, searchTickers, getOption
 import { useLocalStorageState } from "@/lib/hooks";
 import CloseContractModal from "./CloseContractModal";
 import TradeDetailModal from "./TradeDetailModal";
-import { SCREENERS, SIGNAL_SCREENER_IDS } from "./discovery/constants";
-import type { SortField, SortDir } from "./discovery/constants";
-import SignalsTab from "./discovery/SignalsTab";
-import ScreenersTab from "./discovery/ScreenersTab";
-import SearchTab from "./discovery/SearchTab";
-import WatchlistTab from "./discovery/WatchlistTab";
+import { SCREENERS, SIGNAL_SCREENER_IDS } from "./Discovery/constants";
+import type { SortField, SortDir } from "./Discovery/constants";
+import SignalsTab from "./Discovery/SignalsTab";
+import ScreenersTab from "./Discovery/ScreenersTab";
+import SearchTab from "./Discovery/SearchTab";
+import WatchlistTab from "./Discovery/WatchlistTab";
 
 export default function DiscoveryTab() {
   const [activeScreener, setActiveScreener] = useState<string | null>(null);
@@ -34,7 +34,7 @@ export default function DiscoveryTab() {
   const [signalResults, setSignalResults] = useState<EmaPullbackSignal[]>([]);
   const [signalLoading, setSignalLoading] = useState(false);
   const [signalScanned, setSignalScanned] = useState(false);
-  const [signalSort, setSignalSort] = useState<{ field: "ticker" | "price" | "health" | "chains" | "analyst"; dir: SortDir }>({ field: "ticker", dir: "asc" });
+  const [signalSort, setSignalSort] = useState<{ field: "ticker" | "price" | "health" | "chains" | "analyst" | "sector" | "strength" | "volume" | "candle"; dir: SortDir }>({ field: "ticker", dir: "asc" });
   const [signalHealth, setSignalHealth] = useState<Record<string, FinancialHealth>>({});
   const [signalChains, setSignalChains] = useState<Record<string, number>>({});
   const [signalAnalyst, setSignalAnalyst] = useState<Record<string, AnalystTrend>>({});
@@ -127,7 +127,6 @@ export default function DiscoveryTab() {
     if (!t) return;
     setWatchlist((prev) => prev.includes(t) ? prev : [...prev, t]);
     setWatchInput("");
-    setSelectedWatch(t);
   }, []);
 
   const removeFromWatchlist = useCallback((ticker: string) => {
@@ -363,17 +362,6 @@ export default function DiscoveryTab() {
           <span className="text-[9px] bg-[#21262d] text-[#8b949e] px-1.5 py-0.5 rounded-full">{SCREENERS.length}</span>
         </button>
         <button
-          onClick={() => setLeftTab("search")}
-          className={`tab-btn flex items-center gap-1.5 ${
-            leftTab === "search" ? "bg-[#30363d] text-[#c9d1d9]" : "text-[#8b949e] hover:text-[#c9d1d9]"
-          }`}
-        >
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-          </svg>
-          Search
-        </button>
-        <button
           onClick={() => { setLeftTab("signals"); if (!signalScanned) scanSignals(); }}
           className={`tab-btn flex items-center gap-1.5 ${
             leftTab === "signals" ? "bg-[#30363d] text-[#c9d1d9]" : "text-[#8b949e] hover:text-[#c9d1d9]"
@@ -386,6 +374,17 @@ export default function DiscoveryTab() {
           {signalResults.length > 0 && (
             <span className="text-[9px] bg-[#3fb950]/20 text-[#3fb950] px-1.5 py-0.5 rounded-full font-bold">{signalResults.length}</span>
           )}
+        </button>
+        <button
+          onClick={() => setLeftTab("search")}
+          className={`tab-btn flex items-center gap-1.5 ${
+            leftTab === "search" ? "bg-[#30363d] text-[#c9d1d9]" : "text-[#8b949e] hover:text-[#c9d1d9]"
+          }`}
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+          </svg>
+          Search
         </button>
       </div>
 

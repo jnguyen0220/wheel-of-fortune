@@ -211,16 +211,6 @@ export default function WheelAdvisor() {
         </div>
       </div>
 
-      {/* Minimal footer */}
-      <footer className="mt-auto border-t border-[#21262d] py-3">
-        <p className="text-center text-[10px] text-[#6e7681]">
-          &copy; {new Date().getFullYear()} Wheel Advisor &middot; For educational use only &middot;{" "}
-          <button onClick={() => setDisclaimerOpen(true)} className="underline underline-offset-2 hover:text-[#8b949e] transition-colors cursor-pointer">
-            Legal Disclaimer
-          </button>
-        </p>
-      </footer>
-
       {/* Disclaimer popup */}
       <DisclaimerPopup open={disclaimerOpen} onClose={handleDisclaimerClose} />
     </div>

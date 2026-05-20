@@ -8,13 +8,16 @@ import type {
   EarningsResult,
   AnalystTrend,
   NewsItem,
+  EmaPullbackSignal,
 } from "@/lib/types";
 import {
   getBatchData,
   getNews,
+  getTechnicals,
   type BatchResponse,
 } from "@/lib/api";
-import { healthScoreBadgeColor, verdictBadgeColor } from "@/lib/format";
+import { healthScoreBadgeColor, verdictBadgeColor, analystConsensus } from "@/lib/format";
+import TechnicalsPanel from "./TechnicalsPanel";
 
 interface HealthPopupContextValue {
   openHealthPopup: (ticker: string) => void;
@@ -28,7 +31,7 @@ export function useHealthPopup() {
   return useContext(HealthPopupContext);
 }
 
-type PopupTab = "summary" | "financials" | "price" | "earnings" | "analyst" | "news";
+type PopupTab = "summary" | "financials" | "price" | "earnings" | "analyst" | "news" | "technicals";
 
 interface TickerData {
   health?: FinancialHealth;
@@ -37,6 +40,7 @@ interface TickerData {
   earningsHistory?: EarningsResult[];
   analystTrends?: AnalystTrend[];
   news?: NewsItem[];
+  technicals?: EmaPullbackSignal | null;
 }
 
 export function HealthPopupProvider({ children }: { children: React.ReactNode }) {
@@ -50,13 +54,14 @@ export function HealthPopupProvider({ children }: { children: React.ReactNode })
     const t = ticker.toUpperCase();
     setActiveTicker(t);
     setActiveTab("summary");
-    if (!cache[t] && !fetchingRef.current.has(t)) {
+    if ((!cache[t] || cache[t].technicals === undefined) && !fetchingRef.current.has(t)) {
       fetchingRef.current.add(t);
       setLoading(true);
       Promise.all([
         getBatchData([t]).catch((): BatchResponse => ({ market_data: {}, earnings_calendar: {}, earnings_history: {}, analyst_trends: {}, financials: {} })),
         getNews([t]).catch(() => [] as NewsItem[]),
-      ]).then(([batch, news]) => {
+        getTechnicals([t]).catch(() => [] as EmaPullbackSignal[]),
+      ]).then(([batch, news, technicals]) => {
         setCache((prev) => ({
           ...prev,
           [t]: {
@@ -66,6 +71,7 @@ export function HealthPopupProvider({ children }: { children: React.ReactNode })
             earningsHistory: batch.earnings_history[t] ?? [],
             analystTrends: batch.analyst_trends[t] ?? [],
             news: Array.isArray(news) ? news.filter((n) => n.ticker === t) : [],
+            technicals: technicals.find(s => s.ticker === t) ?? null,
           },
         }));
       }).finally(() => {
@@ -87,6 +93,7 @@ export function HealthPopupProvider({ children }: { children: React.ReactNode })
     { key: "earnings", label: "Earnings", icon: <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" /></svg> },
     { key: "analyst", label: "Analyst", icon: <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" /></svg> },
     { key: "news", label: "News", icon: <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 0 1-2.25 2.25M16.5 7.5V18a2.25 2.25 0 0 0 2.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 0 0 2.25 2.25h13.5" /></svg> },
+    { key: "technicals", label: "Technicals", icon: <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" /></svg> },
   ];
 
   return (
@@ -95,7 +102,7 @@ export function HealthPopupProvider({ children }: { children: React.ReactNode })
 
       {activeTicker && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={close}>
-          <div className="bg-[#0d1117] border border-[#30363d] rounded-xl shadow-2xl max-w-2xl w-full mx-4 overflow-hidden animate-in fade-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-[#0d1117] border border-[#30363d] rounded-2xl shadow-2xl shadow-black/50 w-[90vw] max-w-4xl h-[75vh] mx-4 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
             {loading && !data ? (
               <div className="flex flex-col items-center justify-center py-16 gap-3 text-[#8b949e]">
                 <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -206,7 +213,7 @@ export function HealthPopupProvider({ children }: { children: React.ReactNode })
                 </div>
 
                 {/* Tab content */}
-                <div className="px-6 py-5 max-h-[50vh] overflow-y-auto bg-[#0d1117]">
+                <div className="px-6 py-5 flex-1 min-h-0 overflow-y-auto bg-[#0d1117]">
                   {activeTab === "summary" && <SummaryTab health={health} />}
                   {activeTab === "financials" && <FinancialsTab health={health} />}
                   {activeTab === "price" && <PriceTab marketData={data.marketData} />}
@@ -215,6 +222,9 @@ export function HealthPopupProvider({ children }: { children: React.ReactNode })
                   )}
                   {activeTab === "analyst" && <AnalystTab trends={data.analystTrends} />}
                   {activeTab === "news" && <NewsTab news={data.news} />}
+                  {activeTab === "technicals" && (
+                    <TechnicalsPanel signal={data.technicals ?? null} loading={loading} />
+                  )}
                 </div>
               </>
             ) : (
@@ -588,17 +598,9 @@ export function AnalystTab({ trends }: { trends?: AnalystTrend[] }) {
   const totalLatest = latest.strong_buy + latest.buy + latest.hold + latest.sell + latest.strong_sell;
   const bullish = latest.strong_buy + latest.buy;
   const bearish = latest.sell + latest.strong_sell;
-  const consensus = totalLatest > 0
-    ? bullish / totalLatest >= 0.7 ? "Strong Buy"
-    : bullish / totalLatest >= 0.5 ? "Buy"
-    : bearish / totalLatest >= 0.5 ? "Sell"
-    : bearish / totalLatest >= 0.7 ? "Strong Sell"
-    : "Hold"
-    : "N/A";
-  const consensusColor = consensus === "Strong Buy" || consensus === "Buy"
-    ? "text-[#3fb950]" : consensus === "Hold"
-    ? "text-[#d29922]" : consensus === "N/A"
-    ? "text-[#484f58]" : "text-[#f85149]";
+  const ac = analystConsensus(latest);
+  const consensus = ac.label;
+  const consensusColor = ac.color;
   const bullPct = totalLatest > 0 ? ((bullish / totalLatest) * 100).toFixed(0) : "0";
 
   return (

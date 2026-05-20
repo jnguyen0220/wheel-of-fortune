@@ -113,3 +113,31 @@ export function fmtPct(value: number): string {
   const sign = value >= 0 ? "+" : "";
   return `${sign}${value.toFixed(2)}%`;
 }
+
+// ── Analyst consensus helpers ────────────────────────────────────────────────
+
+export interface AnalystConsensus {
+  label: "Strong Buy" | "Buy" | "Hold" | "Sell" | "Strong Sell" | "—";
+  score: number; // 1–5 weighted average (5 = most bullish), 0 if no data
+  color: string; // tailwind text color class
+  total: number; // total number of analysts
+}
+
+/**
+ * Compute a weighted analyst consensus from trend data.
+ * Uses a 1–5 scale: Strong Buy=5, Buy=4, Hold=3, Sell=2, Strong Sell=1.
+ */
+export function analystConsensus(data: { strong_buy: number; buy: number; hold: number; sell: number; strong_sell: number } | null | undefined): AnalystConsensus {
+  if (!data) return { label: "—", score: 0, color: "text-[#30363d]", total: 0 };
+  const total = data.strong_buy + data.buy + data.hold + data.sell + data.strong_sell;
+  if (total === 0) return { label: "—", score: 0, color: "text-[#30363d]", total: 0 };
+  const score = (data.strong_buy * 5 + data.buy * 4 + data.hold * 3 + data.sell * 2 + data.strong_sell * 1) / total;
+  let label: AnalystConsensus["label"];
+  let color: string;
+  if (score >= 4.5) { label = "Strong Buy"; color = "text-[#3fb950]"; }
+  else if (score >= 3.5) { label = "Buy"; color = "text-[#56d364]"; }
+  else if (score >= 2.5) { label = "Hold"; color = "text-[#d29922]"; }
+  else if (score >= 1.5) { label = "Sell"; color = "text-[#f85149]"; }
+  else { label = "Strong Sell"; color = "text-[#f85149]"; }
+  return { label, score, color, total };
+}
