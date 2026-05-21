@@ -778,6 +778,7 @@ export default function TradeDetailModal({
                               <table className="w-full text-[10px]">
                                 <thead>
                                   <tr className="bg-[#161b22] text-[#484f58]">
+                                    <th className="px-2 py-1.5 text-center font-medium">#</th>
                                     <th className="px-2 py-1.5 text-left font-medium">Type</th>
                                     <th className="px-2 py-1.5 text-right font-medium">Contracts</th>
                                     <th className="px-2 py-1.5 text-right font-medium">Strike</th>
@@ -799,7 +800,7 @@ export default function TradeDetailModal({
                                   {/* CC section */}
                                   {ccRecs.length > 0 && (
                                     <tr className="bg-[#58a6ff]/5">
-                                      <td colSpan={14} className="px-2 py-1 text-[9px] font-bold text-[#58a6ff] uppercase tracking-widest">
+                                      <td colSpan={16} className="px-2 py-1 text-[9px] font-bold text-[#58a6ff] uppercase tracking-widest">
                                         Covered Calls — {ccRecs.reduce((s, r) => s + (r.contracts_allocated ?? 1), 0)} contracts · {ccRecs.reduce((s, r) => s + (r.contracts_allocated ?? 1), 0) * 100} shares
                                       </td>
                                     </tr>
@@ -811,6 +812,7 @@ export default function TradeDetailModal({
                                     const label = Math.abs(r.contract.delta) <= 0.24 ? "Consrv" : Math.abs(r.contract.delta) >= 0.29 ? "Aggrss" : "Modrt";
                                     return (
                                       <tr key={`cc-${i}`} className="border-t border-[#21262d]/30 hover:bg-[#161b22]/60 transition-colors">
+                                        <td className="px-2 py-1.5 text-center text-[#484f58] tabular-nums">{i + 1}</td>
                                         <td className="px-2 py-1.5 font-medium">
                                           <span className="text-[#58a6ff]">CC</span>
                                           {ccRecs.length > 1 && <span className="text-[#484f58] ml-1 text-[9px]">{label}</span>}
@@ -832,11 +834,9 @@ export default function TradeDetailModal({
                                           </span>
                                         </td>
                                         <td className="px-2 py-1.5 text-right">
-                                          {r.trend_signal ? (
-                                            <span className={`text-[8px] font-medium px-1 py-0.5 rounded-full ${(r.trend_score ?? 0) > 2 ? "bg-[#3fb950]/10 text-[#3fb950]" : (r.trend_score ?? 0) < -2 ? "bg-[#f85149]/10 text-[#f85149]" : "bg-[#21262d] text-[#484f58]"}`} title={r.trend_signal}>
-                                              {(r.trend_score ?? 0) > 0 ? "▲" : (r.trend_score ?? 0) < 0 ? "▼" : "—"}
-                                            </span>
-                                          ) : <span className="text-[9px] text-[#30363d]">—</span>}
+                                          <span className={`text-[9px] font-semibold tabular-nums px-1.5 py-0.5 rounded-full ${(r.trend_score ?? 0) > 2 ? "bg-[#3fb950]/10 text-[#3fb950]" : (r.trend_score ?? 0) < -2 ? "bg-[#f85149]/10 text-[#f85149]" : "bg-[#21262d] text-[#484f58]"}`} title={r.trend_signal || "No signal"}>
+                                            {(r.trend_score ?? 0) > 0 ? "+" : ""}{(r.trend_score ?? 0).toFixed(1)}
+                                          </span>
                                         </td>
                                         <td className="px-2 py-1.5 text-right text-[#484f58] tabular-nums">{r.contract.open_interest.toLocaleString()}</td>
                                         <td className="px-1 py-1.5 text-center">
@@ -851,7 +851,7 @@ export default function TradeDetailModal({
                                   {/* CSP section */}
                                   {cspRecs.length > 0 && (
                                     <tr className={`bg-[#d29922]/5 ${ccRecs.length > 0 ? "border-t-2 border-[#21262d]" : ""}`}>
-                                      <td colSpan={14} className="px-2 py-1 text-[9px] font-bold text-[#d29922] uppercase tracking-widest">
+                                      <td colSpan={16} className="px-2 py-1 text-[9px] font-bold text-[#d29922] uppercase tracking-widest">
                                         Cash-Secured Puts — {cspRecs.length} trades
                                       </td>
                                     </tr>
@@ -861,6 +861,7 @@ export default function TradeDetailModal({
                                     const otm = ((r.contract.underlying_price - r.contract.strike) / r.contract.underlying_price) * 100;
                                     return (
                                       <tr key={`csp-${i}`} className="border-t border-[#21262d]/30 hover:bg-[#161b22]/60 transition-colors">
+                                        <td className="px-2 py-1.5 text-center text-[#484f58] tabular-nums">{i + 1}</td>
                                         <td className="px-2 py-1.5 font-medium">
                                           <span className="text-[#d29922]">CSP</span>
                                           {r.earnings_warning && <span className="ml-1 text-[#d29922]" title="Earnings warning">⚠</span>}
@@ -881,11 +882,9 @@ export default function TradeDetailModal({
                                           </span>
                                         </td>
                                         <td className="px-2 py-1.5 text-right">
-                                          {r.trend_signal ? (
-                                            <span className={`text-[8px] font-medium px-1 py-0.5 rounded-full ${(r.trend_score ?? 0) > 2 ? "bg-[#3fb950]/10 text-[#3fb950]" : (r.trend_score ?? 0) < -2 ? "bg-[#f85149]/10 text-[#f85149]" : "bg-[#21262d] text-[#484f58]"}`} title={r.trend_signal}>
-                                              {(r.trend_score ?? 0) > 0 ? "▲" : (r.trend_score ?? 0) < 0 ? "▼" : "—"}
-                                            </span>
-                                          ) : <span className="text-[9px] text-[#30363d]">—</span>}
+                                          <span className={`text-[9px] font-semibold tabular-nums px-1.5 py-0.5 rounded-full ${(r.trend_score ?? 0) > 2 ? "bg-[#3fb950]/10 text-[#3fb950]" : (r.trend_score ?? 0) < -2 ? "bg-[#f85149]/10 text-[#f85149]" : "bg-[#21262d] text-[#484f58]"}`} title={r.trend_signal || "No signal"}>
+                                            {(r.trend_score ?? 0) > 0 ? "+" : ""}{(r.trend_score ?? 0).toFixed(1)}
+                                          </span>
                                         </td>
                                         <td className="px-2 py-1.5 text-right text-[#484f58] tabular-nums">{r.contract.open_interest.toLocaleString()}</td>
                                         <td className="px-1 py-1.5 text-center">

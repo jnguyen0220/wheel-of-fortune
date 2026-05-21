@@ -102,6 +102,22 @@ export default function DiscoveryTab() {
       .catch(() => {});
   }, [watchlist, watchRefreshKey]);
 
+  // Fetch batch data for selected ticker if not already in watchBatch
+  useEffect(() => {
+    if (!selectedWatch) return;
+    setWatchRecs([]);
+    if (watchBatch.market_data[selectedWatch]) return;
+    getBatchData([selectedWatch])
+      .then((b) => setWatchBatch(prev => ({
+        financials: { ...prev.financials, ...b.financials },
+        analyst_trends: { ...prev.analyst_trends, ...b.analyst_trends },
+        market_data: { ...prev.market_data, ...b.market_data },
+        earnings_calendar: { ...prev.earnings_calendar, ...b.earnings_calendar },
+        earnings_history: { ...prev.earnings_history, ...b.earnings_history },
+      })))
+      .catch(() => {});
+  }, [selectedWatch]);
+
   // Fetch options when selected ticker or tab changes
   useEffect(() => {
     if (!selectedWatch || watchDetailTab !== "option") { setWatchOptions(null); return; }
