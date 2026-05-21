@@ -107,7 +107,8 @@ export default function WatchlistTab({
               const reader = new FileReader();
               reader.onload = (ev) => {
                 const text = ev.target?.result as string;
-                text.split(/[\s,\n\r]+/).filter(Boolean).forEach(t => addToWatchlist(t.trim().toUpperCase()));
+                const lines = text.split(/[\n\r]+/).filter(Boolean);
+                lines.slice(1).flatMap(l => l.split(/[\s,]+/)).filter(Boolean).forEach(t => addToWatchlist(t.trim().toUpperCase()));
               };
               reader.readAsText(file);
               e.target.value = "";
@@ -118,13 +119,20 @@ export default function WatchlistTab({
           type="button"
           onClick={() => {
             if (watchlist.length === 0) return;
-            navigator.clipboard.writeText(watchlist.join(", "));
+            const csv = "ticker\n" + watchlist.join("\n") + "\n";
+            const blob = new Blob([csv], { type: "text/csv" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "watchlist.csv";
+            a.click();
+            URL.revokeObjectURL(url);
           }}
           className="px-2.5 py-1.5 rounded-lg bg-[#21262d] border border-[#30363d] text-[#8b949e] text-[10px] font-medium hover:bg-[#30363d] hover:text-[#c9d1d9] transition flex items-center gap-1"
-          title="Copy watchlist to clipboard"
+          title="Export watchlist as CSV"
         >
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9.75a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184" /></svg>
-          Copy
+          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+          Export
         </button>
         <button
           type="button"
