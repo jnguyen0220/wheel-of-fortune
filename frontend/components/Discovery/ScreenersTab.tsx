@@ -27,7 +27,7 @@ interface ScreenersTabProps {
   setWatchlist: (fn: (prev: string[]) => string[]) => void;
   removeFromWatchlist: (ticker: string) => void;
   setSelectedWatch: (ticker: string | null) => void;
-  setWatchDetailTab: (tab: "position" | "option" | "order" | "technicals") => void;
+  setWatchDetailTab: (tab: "position" | "option" | "order" | "iv") => void;
   resultsRef: React.RefObject<HTMLDivElement | null>;
   tableScrollRef: React.RefObject<HTMLDivElement | null>;
 }

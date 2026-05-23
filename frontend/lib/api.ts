@@ -136,15 +136,28 @@ export async function prefetchDiscovery(): Promise<void> {
   await apiFetch<unknown>(`/api/discovery/prefetch`);
 }
 
-// ── Technicals API ───────────────────────────────────────────────────────────
+// ── IV Signals API ───────────────────────────────────────────────────────────────────
 
-import type { EmaPullbackSignal } from "./types";
+import type { IvSignal } from "./types";
 
-export async function getTechnicals(
+export async function getIvSignals(
   tickers: string[],
-): Promise<EmaPullbackSignal[]> {
+): Promise<IvSignal[]> {
   const params = tickers.join(",");
-  return apiFetch<EmaPullbackSignal[]>(
-    `/api/technicals?tickers=${encodeURIComponent(params)}`,
+  return apiFetch<IvSignal[]>(
+    `/api/iv-signals?tickers=${encodeURIComponent(params)}`,
+  );
+}
+
+// ── Chart API ────────────────────────────────────────────────────────────────
+
+import type { Candle } from "./types";
+
+export async function getChart(
+  ticker: string,
+  range: string = "5y",
+): Promise<Candle[]> {
+  return apiFetch<Candle[]>(
+    `/api/chart?ticker=${encodeURIComponent(ticker)}&range=${encodeURIComponent(range)}`,
   );
 }

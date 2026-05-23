@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
-import type { DiscoveryItem, FinancialHealth, AnalystTrend, SearchResult, StockMarketData, OptionsChain, EarningsCalendar, EarningsResult, WheelRecommendation, PositionTransaction, OptionsOrder, EmaPullbackSignal } from "@/lib/types";
-import { getDiscovery, getBatchData, prefetchDiscovery, searchTickers, getOptionsChains, getTechnicals } from "@/lib/api";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import type { DiscoveryItem, FinancialHealth, AnalystTrend, SearchResult, StockMarketData, OptionsChain, EarningsCalendar, EarningsResult, WheelRecommendation, PositionTransaction, OptionsOrder, IvSignal } from "@/lib/types";
+import { getDiscovery, getBatchData, prefetchDiscovery, searchTickers, getOptionsChains, getIvSignals } from "@/lib/api";
 import { useLocalStorageState } from "@/lib/hooks";
 import CloseContractModal from "./CloseContractModal";
 import TradeDetailModal from "./TradeDetailModal";
@@ -31,10 +31,10 @@ export default function DiscoveryTab() {
   const [searchQuery, setSearchQuery] = useState("");
 
   // ── Signals scan state ──
-  const [signalResults, setSignalResults] = useState<EmaPullbackSignal[]>([]);
+  const [signalResults, setSignalResults] = useState<IvSignal[]>([]);
   const [signalLoading, setSignalLoading] = useState(false);
   const [signalScanned, setSignalScanned] = useState(false);
-  const [signalSort, setSignalSort] = useState<{ field: "ticker" | "price" | "health" | "chains" | "analyst" | "sector" | "strength" | "volume" | "candle"; dir: SortDir }>({ field: "ticker", dir: "asc" });
+  const [signalSort, setSignalSort] = useState<{ field: "ticker" | "price" | "health" | "chains" | "analyst" | "sector" | "score" | "ivRank" | "regime"; dir: SortDir }>({ field: "score", dir: "desc" });
   const [signalHealth, setSignalHealth] = useState<Record<string, FinancialHealth>>({});
   const [signalChains, setSignalChains] = useState<Record<string, number>>({});
   const [signalAnalyst, setSignalAnalyst] = useState<Record<string, AnalystTrend>>({});
@@ -46,7 +46,7 @@ export default function DiscoveryTab() {
   const [watchSortField, setWatchSortField] = useState<"ticker" | "price" | "health" | "name" | "sector" | "analyst" | "positions">("ticker");
   const [watchSortDir, setWatchSortDir] = useState<SortDir>("asc");
   const [watchRefreshKey, setWatchRefreshKey] = useState(0);
-  const [watchDetailTab, setWatchDetailTab] = useState<"position" | "option" | "order" | "technicals">("position");
+  const [watchDetailTab, setWatchDetailTab] = useState<"position" | "option" | "order" | "iv">("position");
   const [watchBatch, setWatchBatch] = useState<{
     financials: Record<string, FinancialHealth>;
     analyst_trends: Record<string, AnalystTrend[]>;
@@ -60,8 +60,8 @@ export default function DiscoveryTab() {
   const [watchOptionsSubTab, setWatchOptionsSubTab] = useState<"chain" | "recommendation">("chain");
   const [watchRecs, setWatchRecs] = useState<WheelRecommendation[]>([]);
   const [watchRecsLoading, setWatchRecsLoading] = useState(false);
-  const [watchTechnicals, setWatchTechnicals] = useState<EmaPullbackSignal | null>(null);
-  const [watchTechnicalsLoading, setWatchTechnicalsLoading] = useState(false);
+  const [watchIvSignal, setWatchIvSignal] = useState<IvSignal | null>(null);
+  const [watchIvLoading, setWatchIvLoading] = useState(false);
 
   const [positions, setPositions] = useLocalStorageState<Record<string, PositionTransaction[]>>("wof-positions", {});
   const [orders, setOrders] = useLocalStorageState<OptionsOrder[]>("wof-orders", []);
@@ -128,14 +128,14 @@ export default function DiscoveryTab() {
       .finally(() => setWatchOptionsLoading(false));
   }, [selectedWatch, watchDetailTab]);
 
-  // Fetch technicals when selected ticker or tab changes
+  // Fetch IV signal when selected ticker or tab changes
   useEffect(() => {
-    if (!selectedWatch || watchDetailTab !== "technicals") { setWatchTechnicals(null); return; }
-    setWatchTechnicalsLoading(true);
-    getTechnicals([selectedWatch])
-      .then((signals) => setWatchTechnicals(signals.find(s => s.ticker === selectedWatch) || null))
-      .catch(() => setWatchTechnicals(null))
-      .finally(() => setWatchTechnicalsLoading(false));
+    if (!selectedWatch || watchDetailTab !== "iv") { setWatchIvSignal(null); return; }
+    setWatchIvLoading(true);
+    getIvSignals([selectedWatch])
+      .then((signals) => setWatchIvSignal(signals.find(s => s.ticker === selectedWatch) || null))
+      .catch(() => setWatchIvSignal(null))
+      .finally(() => setWatchIvLoading(false));
   }, [selectedWatch, watchDetailTab]);
 
   const addToWatchlist = useCallback((ticker: string) => {
@@ -223,7 +223,7 @@ export default function DiscoveryTab() {
     }
   }
 
-  async function scanSignals() {
+  const scanSignals = useCallback(async function scanSignals() {
     setSignalLoading(true);
     setSignalResults([]);
     setSignalScanned(true);
@@ -244,21 +244,24 @@ export default function DiscoveryTab() {
 
       const allTickers = Array.from(tickerSet);
       const chunkSize = 20;
-      const allSignals: EmaPullbackSignal[] = [];
+      const allIvSignals: IvSignal[] = [];
       for (let i = 0; i < allTickers.length; i += chunkSize) {
         const chunk = allTickers.slice(i, i + chunkSize);
         try {
-          const signals = await getTechnicals(chunk);
-          allSignals.push(...signals);
+          const signals = await getIvSignals(chunk);
+          allIvSignals.push(...signals);
         } catch { /* continue on error */ }
       }
 
-      const strong = allSignals.filter((s) => s.criteria_met >= 5);
-      strong.sort((a, b) => b.criteria_met - a.criteria_met || a.ticker.localeCompare(b.ticker));
-      setSignalResults(strong);
+      // Show only actionable signals (score >= 55 = actual sell recommendation)
+      const qualified = allIvSignals.filter((s) => s.premium_score >= 55);
+      qualified.sort((a, b) => b.premium_score - a.premium_score || a.ticker.localeCompare(b.ticker));
+      setSignalResults(qualified);
 
-      if (strong.length > 0) {
-        getBatchData(strong.map((s) => s.ticker))
+      if (qualified.length > 0) {
+        const tickers = qualified.map((s) => s.ticker);
+
+        getBatchData(tickers)
           .then((batch) => {
             setSignalHealth(batch.financials);
             const analysts: Record<string, AnalystTrend> = {};
@@ -270,7 +273,7 @@ export default function DiscoveryTab() {
           })
           .catch(() => {});
 
-        getOptionsChains(strong.map((s) => s.ticker))
+        getOptionsChains(tickers)
           .then((chains) => {
             const counts: Record<string, number> = {};
             chains.forEach((c) => { counts[c.ticker] = c.contracts.length; });
@@ -281,7 +284,7 @@ export default function DiscoveryTab() {
     } finally {
       setSignalLoading(false);
     }
-  }
+  }, []);
 
   // Fetch health data when items change
   useEffect(() => {
@@ -311,29 +314,27 @@ export default function DiscoveryTab() {
     return Infinity;
   }
 
-  function sortItems(sourceItems: DiscoveryItem[], hData: Record<string, FinancialHealth>, aData: Record<string, AnalystTrend[]>): DiscoveryItem[] {
+  const sortedItems = React.useMemo(() => {
     const ratingScores = sortField === "rating"
-      ? new Map(sourceItems.map(item => [item.ticker, getRatingScore(item, aData)]))
+      ? new Map(items.map(item => [item.ticker, getRatingScore(item, analystData)]))
       : null;
-    return [...sourceItems].sort((a, b) => {
+    return [...items].sort((a, b) => {
       let cmp = 0;
       switch (sortField) {
         case "rank": cmp = a.rank - b.rank; break;
         case "ticker": cmp = a.ticker.localeCompare(b.ticker); break;
         case "price": cmp = a.price - b.price; break;
-        case "health": cmp = (hData[a.ticker]?.health_score ?? -1) - (hData[b.ticker]?.health_score ?? -1); break;
+        case "health": cmp = (healthData[a.ticker]?.health_score ?? -1) - (healthData[b.ticker]?.health_score ?? -1); break;
         case "rating": cmp = (ratingScores!.get(a.ticker) ?? Infinity) - (ratingScores!.get(b.ticker) ?? Infinity); break;
       }
       return sortDir === "asc" ? cmp : -cmp;
     });
-  }
-
-  const sortedItems = sortItems(items, healthData, analystData);
+  }, [items, sortField, sortDir, healthData, analystData]);
   const totalPages = Math.ceil(sortedItems.length / PAGE_SIZE);
   const paginatedItems = sortedItems.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   // Convert search results to DiscoveryItem shape for the shared table
-  const searchAsItems: DiscoveryItem[] = searchResults.map((r, i) => {
+  const searchAsItems = React.useMemo<DiscoveryItem[]>(() => searchResults.map((r, i) => {
     const md = searchMarketData[r.symbol];
     return {
       rank: i + 1,
@@ -345,7 +346,7 @@ export default function DiscoveryTab() {
       market_cap: 0,
       analyst_rating: null,
     };
-  });
+  }), [searchResults, searchMarketData]);
 
   return (
     <div className="flex flex-col h-full min-h-[400px]">
@@ -516,8 +517,8 @@ export default function DiscoveryTab() {
           setWatchRecs={setWatchRecs}
           watchRecsLoading={watchRecsLoading}
           setWatchRecsLoading={setWatchRecsLoading}
-          watchTechnicals={watchTechnicals}
-          watchTechnicalsLoading={watchTechnicalsLoading}
+          watchIvSignal={watchIvSignal}
+          watchIvLoading={watchIvLoading}
           positions={positions}
           setPositions={setPositions}
           orders={orders}

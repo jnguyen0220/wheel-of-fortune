@@ -15,7 +15,7 @@ interface WatchlistTabProps {
   removeFromWatchlist: (ticker: string) => void;
   selectedWatch: string | null;
   setSelectedWatch: (t: string | null) => void;
-  setWatchDetailTab: (tab: "position" | "option" | "order" | "technicals") => void;
+  setWatchDetailTab: (tab: "position" | "option" | "order" | "iv") => void;
   watchSortField: WatchSortField;
   setWatchSortField: (f: WatchSortField) => void;
   watchSortDir: SortDir;

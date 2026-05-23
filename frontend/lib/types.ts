@@ -1,5 +1,14 @@
 // ── Domain types mirroring the Rust backend models ───────────────────────────
 
+export interface Candle {
+  timestamp: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
 export type OptionType = "CALL" | "PUT";
 
 export type WheelLeg = "cash_secured_put" | "covered_call";
@@ -68,10 +77,10 @@ export interface WheelRecommendation {
   contracts_allocated: number;
   /** True when the contract's DTE spans past a nearby earnings date. */
   earnings_warning?: boolean;
-  /** Trend alignment score (-10 to +10). Positive = trend supports this trade. */
-  trend_score?: number;
-  /** Brief trend signal label. */
-  trend_signal?: string;
+  /** IV-aware premium selling score (-10 to +15). Positive = IV conditions favor selling. */
+  iv_score?: number;
+  /** Brief IV signal label. */
+  iv_signal?: string;
 }
 
 export interface RecommendationResponse {
@@ -222,23 +231,26 @@ export interface OptionsOrder {
   closed_at?: string;
 }
 
-// ── Technical analysis types ──────────────────────────────────────────────────
+// ── IV Signal types ──────────────────────────────────────────────────────────
 
-export type SignalDirection = "call" | "put";
+export type MarketRegime = "range_bound" | "trending" | "volatile";
+export type FavoredLeg = "csp" | "cc" | "both";
 
-export interface EmaPullbackSignal {
+export interface IvSignal {
   ticker: string;
-  direction: SignalDirection;
-  price: number;
-  dma_50: number;
-  ema_9: number;
-  ema_21: number;
-  ema_20: number;
+  premium_score: number;
+  regime: MarketRegime;
+  favored_leg: FavoredLeg;
+  atm_iv: number;
+  hv_20: number;
+  iv_hv_ratio: number;
+  iv_rank: number;
+  bb_squeeze: number;
   rsi: number;
-  volume_increasing: boolean;
-  candle_confirmed: boolean;
-  dma_slope: number;
+  price: number;
+  sma_20: number;
+  sma_50: number;
   criteria_met: number;
   notes: string[];
-  exit_condition: string;
+  action: string;
 }

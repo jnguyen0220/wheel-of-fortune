@@ -1,10 +1,10 @@
 "use client";
 
 import React, { useRef, useEffect } from "react";
-import type { FinancialHealth, AnalystTrend, StockMarketData, OptionsChain, EarningsCalendar, WheelRecommendation, PositionTransaction, OptionsOrder, EmaPullbackSignal } from "@/lib/types";
+import type { FinancialHealth, AnalystTrend, StockMarketData, OptionsChain, EarningsCalendar, WheelRecommendation, PositionTransaction, OptionsOrder, IvSignal } from "@/lib/types";
 import { getRecommendations } from "@/lib/api";
 import { healthScoreBadgeColor, verdictBadgeColor, fmtCurrency, fmtSignedCurrency, fmtShares, fmtPct } from "@/lib/format";
-import TechnicalsPanel from "./TechnicalsPanel";
+import IvSignalPanel from "./IvSignalPanel";
 
 interface TradeDetailModalProps {
   ticker: string;
@@ -15,8 +15,8 @@ interface TradeDetailModalProps {
     market_data: Record<string, StockMarketData>;
     earnings_calendar: Record<string, EarningsCalendar[]>;
   };
-  watchDetailTab: "position" | "option" | "order" | "technicals";
-  setWatchDetailTab: (tab: "position" | "option" | "order" | "technicals") => void;
+  watchDetailTab: "position" | "option" | "order" | "iv";
+  setWatchDetailTab: (tab: "position" | "option" | "order" | "iv") => void;
   watchOptionsSubTab: "chain" | "recommendation";
   setWatchOptionsSubTab: (tab: "chain" | "recommendation") => void;
   watchOptionsExp: string | null;
@@ -27,8 +27,8 @@ interface TradeDetailModalProps {
   setWatchRecs: (recs: WheelRecommendation[]) => void;
   watchRecsLoading: boolean;
   setWatchRecsLoading: (loading: boolean) => void;
-  watchTechnicals: EmaPullbackSignal | null;
-  watchTechnicalsLoading: boolean;
+  watchIvSignal: IvSignal | null;
+  watchIvLoading: boolean;
   positions: Record<string, PositionTransaction[]>;
   setPositions: React.Dispatch<React.SetStateAction<Record<string, PositionTransaction[]>>>;
   orders: OptionsOrder[];
@@ -53,8 +53,8 @@ export default function TradeDetailModal({
   setWatchRecs,
   watchRecsLoading,
   setWatchRecsLoading,
-  watchTechnicals,
-  watchTechnicalsLoading,
+  watchIvSignal,
+  watchIvLoading,
   positions,
   setPositions,
   orders,
@@ -167,13 +167,13 @@ export default function TradeDetailModal({
         </div>
         {/* Detail sub-tabs — underline style */}
         <div className="flex items-center gap-0 px-4 pt-3 pb-0 border-b border-[#21262d] bg-[#161b22]/50 overflow-x-auto shrink-0">
-          {(["position", "option", "order", "technicals"] as const).map((tab) => {
-            const label = { position: "Position", option: "Options", order: "Contracts", technicals: "Technicals" }[tab];
+          {(["position", "option", "order", "iv"] as const).map((tab) => {
+            const label = { position: "Position", option: "Options", order: "Contracts", iv: "IV Signal" }[tab];
             const icon = {
               position: <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" /></svg>,
               option: <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 0 0 6 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0 1 18 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5" /></svg>,
               order: <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15a2.25 2.25 0 0 1 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25Z" /></svg>,
-              technicals: <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" /></svg>,
+              iv: <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" /></svg>,
             }[tab];
             const isTabActive = watchDetailTab === tab;
             return (
@@ -802,11 +802,6 @@ export default function TradeDetailModal({
                                       <td colSpan={15} className="px-2 py-1 text-[9px] font-bold text-[#58a6ff] uppercase tracking-widest">
                                         <span className="inline-flex items-center gap-2">
                                           Covered Calls — {ccRecs.reduce((s, r) => s + (r.contracts_allocated ?? 1), 0)} contracts · {ccRecs.reduce((s, r) => s + (r.contracts_allocated ?? 1), 0) * 100} shares
-                                          {ccRecs[0]?.trend_score != null && (
-                                            <span className={`inline-block text-[8px] font-bold tabular-nums px-1.5 py-0.5 rounded ${ccRecs[0].trend_score > 2 ? "bg-[#3fb950]/15 text-[#3fb950]" : ccRecs[0].trend_score < -2 ? "bg-[#f85149]/15 text-[#f85149]" : "bg-[#21262d] text-[#8b949e]"}`} title={ccRecs[0].trend_signal || ""}>
-                                              Trend {ccRecs[0].trend_score > 0 ? "+" : ""}{ccRecs[0].trend_score.toFixed(1)}
-                                            </span>
-                                          )}
                                         </span>
                                       </td>
                                     </tr>
@@ -855,11 +850,6 @@ export default function TradeDetailModal({
                                       <td colSpan={15} className="px-2 py-1 text-[9px] font-bold text-[#d29922] uppercase tracking-widest">
                                         <span className="inline-flex items-center gap-2">
                                           Cash-Secured Puts — {cspRecs.length} trades
-                                          {cspRecs[0]?.trend_score != null && (
-                                            <span className={`inline-block text-[8px] font-bold tabular-nums px-1.5 py-0.5 rounded ${cspRecs[0].trend_score > 2 ? "bg-[#3fb950]/15 text-[#3fb950]" : cspRecs[0].trend_score < -2 ? "bg-[#f85149]/15 text-[#f85149]" : "bg-[#21262d] text-[#8b949e]"}`} title={cspRecs[0].trend_signal || ""}>
-                                              Trend {cspRecs[0].trend_score > 0 ? "+" : ""}{cspRecs[0].trend_score.toFixed(1)}
-                                            </span>
-                                          )}
                                         </span>
                                       </td>
                                     </tr>
@@ -1020,9 +1010,9 @@ export default function TradeDetailModal({
             );
           })()}
 
-          {/* ── Technicals tab ── */}
-          {watchDetailTab === "technicals" && (
-            <TechnicalsPanel signal={watchTechnicals} loading={watchTechnicalsLoading} />
+          {/* ── IV Signal tab ── */}
+          {watchDetailTab === "iv" && (
+            <IvSignalPanel signal={watchIvSignal} loading={watchIvLoading} />
           )}
         </div>
       </div>

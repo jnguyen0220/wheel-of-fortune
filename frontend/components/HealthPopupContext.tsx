@@ -8,16 +8,18 @@ import type {
   EarningsResult,
   AnalystTrend,
   NewsItem,
-  EmaPullbackSignal,
+  IvSignal,
+  Candle,
 } from "@/lib/types";
 import {
   getBatchData,
   getNews,
-  getTechnicals,
+  getIvSignals,
+  getChart,
   type BatchResponse,
 } from "@/lib/api";
 import { healthScoreBadgeColor, verdictBadgeColor, analystConsensus } from "@/lib/format";
-import TechnicalsPanel from "./TechnicalsPanel";
+import IvSignalPanel from "./IvSignalPanel";
 
 interface HealthPopupContextValue {
   openHealthPopup: (ticker: string) => void;
@@ -31,7 +33,7 @@ export function useHealthPopup() {
   return useContext(HealthPopupContext);
 }
 
-type PopupTab = "summary" | "financials" | "price" | "earnings" | "analyst" | "news" | "technicals";
+type PopupTab = "summary" | "financials" | "price" | "earnings" | "analyst" | "news" | "iv";
 
 interface TickerData {
   health?: FinancialHealth;
@@ -40,7 +42,7 @@ interface TickerData {
   earningsHistory?: EarningsResult[];
   analystTrends?: AnalystTrend[];
   news?: NewsItem[];
-  technicals?: EmaPullbackSignal | null;
+  iv?: IvSignal | null;
 }
 
 export function HealthPopupProvider({ children }: { children: React.ReactNode }) {
@@ -50,18 +52,21 @@ export function HealthPopupProvider({ children }: { children: React.ReactNode })
   const [loading, setLoading] = useState(false);
   const fetchingRef = useRef<Set<string>>(new Set());
 
+  const cacheRef = useRef<Record<string, TickerData>>({});
+  cacheRef.current = cache;
+
   const openHealthPopup = useCallback((ticker: string) => {
     const t = ticker.toUpperCase();
     setActiveTicker(t);
     setActiveTab("summary");
-    if ((!cache[t] || cache[t].technicals === undefined) && !fetchingRef.current.has(t)) {
+    if ((!cacheRef.current[t] || cacheRef.current[t].iv === undefined) && !fetchingRef.current.has(t)) {
       fetchingRef.current.add(t);
       setLoading(true);
       Promise.all([
         getBatchData([t]).catch((): BatchResponse => ({ market_data: {}, earnings_calendar: {}, earnings_history: {}, analyst_trends: {}, financials: {} })),
         getNews([t]).catch(() => [] as NewsItem[]),
-        getTechnicals([t]).catch(() => [] as EmaPullbackSignal[]),
-      ]).then(([batch, news, technicals]) => {
+        getIvSignals([t]).catch(() => [] as IvSignal[]),
+      ]).then(([batch, news, ivSignals]) => {
         setCache((prev) => ({
           ...prev,
           [t]: {
@@ -71,7 +76,7 @@ export function HealthPopupProvider({ children }: { children: React.ReactNode })
             earningsHistory: batch.earnings_history[t] ?? [],
             analystTrends: batch.analyst_trends[t] ?? [],
             news: Array.isArray(news) ? news.filter((n) => n.ticker === t) : [],
-            technicals: technicals.find(s => s.ticker === t) ?? null,
+            iv: ivSignals.find(s => s.ticker === t) ?? null,
           },
         }));
       }).finally(() => {
@@ -79,9 +84,11 @@ export function HealthPopupProvider({ children }: { children: React.ReactNode })
         setLoading(false);
       });
     }
-  }, [cache]);
+  }, []);
 
   const close = useCallback(() => setActiveTicker(null), []);
+
+  const ctxValue = React.useMemo(() => ({ openHealthPopup }), [openHealthPopup]);
 
   const data = activeTicker ? cache[activeTicker] : null;
   const health = data?.health;
@@ -93,11 +100,11 @@ export function HealthPopupProvider({ children }: { children: React.ReactNode })
     { key: "earnings", label: "Earnings", icon: <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" /></svg> },
     { key: "analyst", label: "Analyst", icon: <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" /></svg> },
     { key: "news", label: "News", icon: <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 0 1-2.25 2.25M16.5 7.5V18a2.25 2.25 0 0 0 2.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 0 0 2.25 2.25h13.5" /></svg> },
-    { key: "technicals", label: "Technicals", icon: <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" /></svg> },
+    { key: "iv", label: "IV Signal", icon: <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" /></svg> },
   ];
 
   return (
-    <HealthPopupContext.Provider value={{ openHealthPopup }}>
+    <HealthPopupContext.Provider value={ctxValue}>
       {children}
 
       {activeTicker && (
@@ -216,14 +223,14 @@ export function HealthPopupProvider({ children }: { children: React.ReactNode })
                 <div className="px-6 py-5 flex-1 min-h-0 overflow-y-auto bg-[#0d1117]">
                   {activeTab === "summary" && <SummaryTab health={health} />}
                   {activeTab === "financials" && <FinancialsTab health={health} />}
-                  {activeTab === "price" && <PriceTab marketData={data.marketData} />}
+                  {activeTab === "price" && <PriceTab marketData={data.marketData} ticker={activeTicker} />}
                   {activeTab === "earnings" && (
                     <EarningsTab calendar={data.earningsCalendar} history={data.earningsHistory} />
                   )}
                   {activeTab === "analyst" && <AnalystTab trends={data.analystTrends} />}
                   {activeTab === "news" && <NewsTab news={data.news} />}
-                  {activeTab === "technicals" && (
-                    <TechnicalsPanel signal={data.technicals ?? null} loading={loading} />
+                  {activeTab === "iv" && (
+                    <IvSignalPanel signal={data.iv ?? null} loading={loading} />
                   )}
                 </div>
               </>
@@ -425,7 +432,24 @@ export function FinancialsTab({ health }: { health?: FinancialHealth }) {
   );
 }
 
-export function PriceTab({ marketData }: { marketData?: StockMarketData }) {
+export function PriceTab({ marketData, ticker }: { marketData?: StockMarketData; ticker: string }) {
+  const [candles, setCandles] = React.useState<Candle[]>([]);
+  const [chartLoading, setChartLoading] = React.useState(false);
+  const [chartRange, setChartRange] = React.useState<string>("5y");
+  const [hoverIdx, setHoverIdx] = React.useState<number | null>(null);
+  const svgRef = React.useRef<SVGSVGElement>(null);
+
+  React.useEffect(() => {
+    if (!ticker) return;
+    let cancelled = false;
+    setChartLoading(true);
+    getChart(ticker, chartRange)
+      .then((data) => { if (!cancelled) setCandles(data); })
+      .catch(() => { if (!cancelled) setCandles([]); })
+      .finally(() => { if (!cancelled) setChartLoading(false); });
+    return () => { cancelled = true; };
+  }, [ticker, chartRange]);
+
   if (!marketData) return <EmptyState>No price data available.</EmptyState>;
   const fmtPrice = (v: number) => `$${v.toFixed(2)}`;
   const fmtPct = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
@@ -438,66 +462,210 @@ export function PriceTab({ marketData }: { marketData?: StockMarketData }) {
   const extPrice = isPreMarket ? marketData.pre_market_price : isPostMarket ? marketData.post_market_price : null;
   const extPct = isPreMarket ? marketData.pre_market_change_percent : isPostMarket ? marketData.post_market_change_percent : null;
 
+  // Chart rendering
+  const chartWidth = 680;
+  const chartHeight = 230;
+  const chartPadding = { top: 30, right: 10, bottom: 20, left: 55 };
+  const innerW = chartWidth - chartPadding.left - chartPadding.right;
+  const innerH = chartHeight - chartPadding.top - chartPadding.bottom;
+
+  let chartPath = "";
+  let areaPath = "";
+  const yLabels: { y: number; label: string }[] = [];
+  const xLabels: { x: number; label: string }[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  let toX = (i: number) => 0;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  let toY = (p: number) => 0;
+
+  if (candles.length > 1) {
+    const closes = candles.map(c => c.close);
+    const minP = Math.min(...closes);
+    const maxP = Math.max(...closes);
+    const range = maxP - minP || 1;
+
+    toX = (i: number) => chartPadding.left + (i / (candles.length - 1)) * innerW;
+    toY = (p: number) => chartPadding.top + innerH - ((p - minP) / range) * innerH;
+
+    chartPath = candles.map((c, i) => `${i === 0 ? "M" : "L"}${toX(i).toFixed(1)},${toY(c.close).toFixed(1)}`).join(" ");
+    areaPath = chartPath + ` L${toX(candles.length - 1).toFixed(1)},${(chartPadding.top + innerH).toFixed(1)} L${toX(0).toFixed(1)},${(chartPadding.top + innerH).toFixed(1)} Z`;
+
+    // Y-axis labels (5 ticks)
+    for (let i = 0; i <= 4; i++) {
+      const price = minP + (range * i) / 4;
+      yLabels.push({ y: toY(price), label: `$${price.toFixed(0)}` });
+    }
+
+    // X-axis labels (4-5 date labels)
+    const step = Math.floor(candles.length / 4);
+    for (let i = 0; i < candles.length; i += step) {
+      const d = new Date(candles[i].timestamp * 1000);
+      xLabels.push({ x: toX(i), label: d.toLocaleDateString("en-US", { month: "short", year: "2-digit" }) });
+    }
+  }
+
+  const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (!svgRef.current || candles.length < 2) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    const mouseX = ((e.clientX - rect.left) / rect.width) * chartWidth;
+    const idx = Math.round(((mouseX - chartPadding.left) / innerW) * (candles.length - 1));
+    setHoverIdx(Math.max(0, Math.min(candles.length - 1, idx)));
+  };
+
+  const handleMouseLeave = () => setHoverIdx(null);
+
+  const ranges = ["1mo", "3mo", "6mo", "1y", "2y", "5y"];
+
+  // Compute performance stats from candles
+  const firstClose = candles.length > 1 ? candles[0].close : null;
+  const lastClose = candles.length > 1 ? candles[candles.length - 1].close : null;
+  const periodReturn = firstClose && lastClose ? ((lastClose - firstClose) / firstClose) * 100 : null;
+  const periodHigh = candles.length > 1 ? Math.max(...candles.map(c => c.high)) : null;
+  const periodLow = candles.length > 1 ? Math.min(...candles.map(c => c.low)) : null;
+  const avgVolume = candles.length > 1 ? candles.reduce((s, c) => s + c.volume, 0) / candles.length : null;
+
   return (
     <div className="space-y-4">
-      <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-5 text-center">
-        <div className="text-3xl font-bold text-[#f0f6fc] tabular-nums">{fmtPrice(marketData.price)}</div>
-        <div className="text-[10px] text-[#484f58] mt-1 uppercase tracking-wider">Regular Market Price</div>
-        {/* Extended hours price */}
-        {extPrice != null && (
-          <div className="mt-2 pt-2 border-t border-[#21262d]">
-            <span className="text-lg font-semibold tabular-nums" style={{ color: extPct != null && extPct >= 0 ? "#3fb950" : "#f85149" }}>
-              {fmtPrice(extPrice)}
-            </span>
-            {extPct != null && (
-              <span className="text-xs ml-1.5" style={{ color: extPct >= 0 ? "#3fb950" : "#f85149" }}>
-                {fmtPct(extPct)}
+      {/* Price header + chart combined */}
+      <div className="bg-[#161b22] border border-[#21262d] rounded-xl overflow-hidden">
+        {/* Top bar: price + change + range selector */}
+        <div className="px-5 py-4 flex items-center justify-between border-b border-[#21262d]">
+          <div className="flex items-baseline gap-3">
+            <span className="text-2xl font-bold text-[#f0f6fc] tabular-nums">{fmtPrice(marketData.price)}</span>
+            {periodReturn != null && (
+              <span className={`text-sm font-semibold tabular-nums ${periodReturn >= 0 ? "text-[#3fb950]" : "text-[#f85149]"}`}>
+                {fmtPct(periodReturn)}
+                <span className="text-[9px] text-[#484f58] font-normal ml-1">{chartRange}</span>
               </span>
             )}
-            <div className="text-[10px] text-[#484f58] mt-0.5 uppercase tracking-wider">
-              {isPreMarket ? "Pre-Market" : "After-Hours"}
+            {extPrice != null && (
+              <span className="text-xs text-[#484f58] ml-1">
+                {isPreMarket ? "Pre" : "AH"}: <span className={`font-medium ${extPct != null && extPct >= 0 ? "text-[#3fb950]" : "text-[#f85149]"}`}>{fmtPrice(extPrice)} {extPct != null && fmtPct(extPct)}</span>
+              </span>
+            )}
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#21262d] text-[#484f58] border border-[#30363d] uppercase font-medium ml-1">{marketData.market_state}</span>
+          </div>
+          <div className="flex items-center gap-0.5 bg-[#0d1117] rounded-lg p-0.5 border border-[#21262d]">
+            {ranges.map(r => (
+              <button
+                key={r}
+                onClick={() => setChartRange(r)}
+                className={`text-[10px] px-2.5 py-1 rounded-md font-medium transition-all ${
+                  chartRange === r
+                    ? "bg-[#21262d] text-[#f0f6fc] shadow-sm"
+                    : "text-[#484f58] hover:text-[#8b949e]"
+                }`}
+              >
+                {r.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Chart area */}
+        <div className="px-2 pt-2 pb-1">
+          {chartLoading ? (
+            <div className="flex items-center justify-center h-[220px]">
+              <div className="w-5 h-5 rounded-full border-2 border-[#21262d] border-t-[#58a6ff] animate-spin" />
             </div>
+          ) : candles.length > 1 ? (
+            <div className="relative cursor-crosshair">
+              <svg ref={svgRef} viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="w-full h-[220px]" preserveAspectRatio="none" onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave}>
+                {/* Grid lines */}
+                {yLabels.map((l, i) => (
+                  <line key={i} x1={chartPadding.left} x2={chartWidth - chartPadding.right} y1={l.y} y2={l.y} stroke="#21262d" strokeWidth={0.5} />
+                ))}
+                {/* Area fill */}
+                <path d={areaPath} fill="url(#chartGradient)" />
+                {/* Line */}
+                <path d={chartPath} fill="none" stroke={periodReturn != null && periodReturn >= 0 ? "#3fb950" : "#f85149"} strokeWidth={1.5} />
+                {/* Hover crosshair + tooltip */}
+                {hoverIdx !== null && candles[hoverIdx] && (() => {
+                  const hx = (toX(hoverIdx) / chartWidth) * 100;
+                  return (
+                    <>
+                      <line x1={toX(hoverIdx)} x2={toX(hoverIdx)} y1={chartPadding.top} y2={chartPadding.top + innerH} stroke="#484f58" strokeWidth={0.5} strokeDasharray="3,2" />
+                      <circle cx={toX(hoverIdx)} cy={toY(candles[hoverIdx].close)} r={3.5} fill={periodReturn != null && periodReturn >= 0 ? "#3fb950" : "#f85149"} stroke="#0d1117" strokeWidth={2} />
+                      <foreignObject x={toX(hoverIdx) - 70} y={toY(candles[hoverIdx].close) - 36} width={140} height={30} style={{ overflow: "visible" }}>
+                        <div style={{ transform: `translateX(${hx > 80 ? "-30px" : hx < 20 ? "30px" : "0"})` }} className="bg-[#0d1117] border border-[#30363d] rounded-md px-2.5 py-1 text-center shadow-xl whitespace-nowrap w-fit mx-auto">
+                          <span className="text-[11px] font-bold text-[#f0f6fc] tabular-nums">${candles[hoverIdx].close.toFixed(2)}</span>
+                          <span className="text-[9px] text-[#6e7681] ml-2">
+                            {new Date(candles[hoverIdx].timestamp * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                          </span>
+                        </div>
+                      </foreignObject>
+                    </>
+                  );
+                })()}
+                {/* Y labels */}
+                {yLabels.map((l, i) => (
+                  <text key={i} x={chartPadding.left - 5} y={l.y + 3} textAnchor="end" fill="#6e7681" fontSize={9} fontFamily="ui-monospace, monospace">{l.label}</text>
+                ))}
+                {/* X labels */}
+                {xLabels.map((l, i) => (
+                  <text key={i} x={l.x} y={chartHeight - 4} textAnchor="middle" fill="#6e7681" fontSize={9}>{l.label}</text>
+                ))}
+                <defs>
+                  <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={periodReturn != null && periodReturn >= 0 ? "#3fb950" : "#f85149"} stopOpacity={0.12} />
+                    <stop offset="100%" stopColor={periodReturn != null && periodReturn >= 0 ? "#3fb950" : "#f85149"} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+              </svg>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center h-[220px] text-[11px] text-[#484f58]">No chart data available</div>
+          )}
+        </div>
+
+        {/* Period stats bar */}
+        {candles.length > 1 && (
+          <div className="px-5 py-3 border-t border-[#21262d] flex items-center gap-6 text-[10px]">
+            {periodReturn != null && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-[#6e7681] uppercase font-medium">Return</span>
+                <span className={`font-bold tabular-nums ${periodReturn >= 0 ? "text-[#3fb950]" : "text-[#f85149]"}`}>{fmtPct(periodReturn)}</span>
+              </div>
+            )}
+            {periodHigh != null && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-[#6e7681] uppercase font-medium">High</span>
+                <span className="font-semibold text-[#c9d1d9] tabular-nums">{fmtPrice(periodHigh)}</span>
+              </div>
+            )}
+            {periodLow != null && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-[#6e7681] uppercase font-medium">Low</span>
+                <span className="font-semibold text-[#c9d1d9] tabular-nums">{fmtPrice(periodLow)}</span>
+              </div>
+            )}
+            {avgVolume != null && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-[#6e7681] uppercase font-medium">Avg Vol</span>
+                <span className="font-semibold text-[#c9d1d9] tabular-nums">{avgVolume >= 1_000_000 ? `${(avgVolume / 1_000_000).toFixed(1)}M` : `${(avgVolume / 1_000).toFixed(0)}K`}</span>
+              </div>
+            )}
           </div>
         )}
-        {/* Extended hours badge */}
-        <div className="mt-2 flex items-center justify-center gap-1.5">
-          <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#21262d] text-[#484f58] border border-[#30363d]">
-            {marketData.market_state}
-          </span>
-        </div>
       </div>
 
-      <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-4">
-        <h4 className="text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider mb-3">Today&apos;s Range</h4>
-        <div className="flex items-center gap-3">
-          <span className="text-[11px] text-[#8b949e] tabular-nums w-16 text-right">{fmtPrice(marketData.daily_low)}</span>
-          <div className="flex-1 h-2 bg-[#21262d] rounded-full relative overflow-hidden">
-            <div
-              className="absolute top-0 left-0 h-full bg-linear-to-r from-[#21262d] to-[#58a6ff] rounded-full"
-              style={{
-                width: `${marketData.daily_high > marketData.daily_low
-                  ? ((marketData.price - marketData.daily_low) / (marketData.daily_high - marketData.daily_low) * 100)
-                  : 50}%`,
-              }}
-            />
-          </div>
-          <span className="text-[11px] text-[#8b949e] tabular-nums w-16">{fmtPrice(marketData.daily_high)}</span>
+      {/* Key stats grid */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="bg-[#161b22] border border-[#21262d] rounded-lg px-4 py-3">
+          <div className="text-[9px] text-[#6e7681] uppercase font-medium mb-1">Day Low / High</div>
+          <div className="text-[11px] text-[#c9d1d9] font-semibold tabular-nums">{fmtPrice(marketData.daily_low)} — {fmtPrice(marketData.daily_high)}</div>
         </div>
-      </div>
-
-      <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-4">
-        <h4 className="text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider mb-3">52-Week Range</h4>
-        <div className="flex items-center gap-3">
-          <span className="text-[11px] text-[#8b949e] tabular-nums w-16 text-right">{fmtPrice(marketData.week52_low)}</span>
-          <div className="flex-1 h-2 bg-[#21262d] rounded-full relative overflow-hidden">
-            <div
-              className="absolute top-0 left-0 h-full bg-linear-to-r from-[#21262d] to-[#3fb950] rounded-full"
-              style={{ width: `${pctOf52}%` }}
-            />
-          </div>
-          <span className="text-[11px] text-[#8b949e] tabular-nums w-16">{fmtPrice(marketData.week52_high)}</span>
+        <div className="bg-[#161b22] border border-[#21262d] rounded-lg px-4 py-3">
+          <div className="text-[9px] text-[#6e7681] uppercase font-medium mb-1">52-Wk Low / High</div>
+          <div className="text-[11px] text-[#c9d1d9] font-semibold tabular-nums">{fmtPrice(marketData.week52_low)} — {fmtPrice(marketData.week52_high)}</div>
         </div>
-        <p className="text-[10px] text-[#484f58] text-center mt-2.5">Position: {pctOf52.toFixed(0)}% from 52-week low</p>
+        <div className="bg-[#161b22] border border-[#21262d] rounded-lg px-4 py-3">
+          <div className="text-[9px] text-[#6e7681] uppercase font-medium mb-1">52-Wk Position</div>
+          <div className="text-[11px] font-semibold tabular-nums">
+            <span className={pctOf52 >= 70 ? "text-[#3fb950]" : pctOf52 >= 30 ? "text-[#d29922]" : "text-[#f85149]"}>{pctOf52.toFixed(0)}%</span>
+            <span className="text-[#484f58] font-normal ml-1">from low</span>
+          </div>
+        </div>
       </div>
     </div>
   );

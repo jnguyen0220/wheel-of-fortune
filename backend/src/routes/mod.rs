@@ -1,17 +1,18 @@
 pub mod analyst;
 pub mod batch;
+pub mod chart;
 pub mod common;
 pub mod discovery;
 pub mod earnings;
 pub mod financials;
 pub mod inventory;
+pub mod iv_signals;
 pub mod market_data;
 pub mod news;
 pub mod options;
 pub mod recommendations;
 pub mod screener;
 pub mod search;
-pub mod technicals;
 
 use axum::{routing::get, Router};
 use std::sync::Arc;
@@ -42,5 +43,6 @@ fn api_routes(state: Arc<AppState>) -> Router {
         .nest("/search", search::router(state.clone()))
         .nest("/discovery", discovery::router(state.clone()))
         .nest("/batch", batch::router(state.clone()))
-        .nest("/technicals", technicals::router(state.clone()))
+        .nest("/iv-signals", iv_signals::router(state.clone()))
+        .nest("/chart", chart::router(state.clone()))
 }

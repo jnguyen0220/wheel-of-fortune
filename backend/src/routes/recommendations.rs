@@ -12,7 +12,7 @@ use tracing::error;
 
 use crate::llm::prompt::build_ranking_prompt;
 use crate::models::{AnalystTrend, EarningsCalendar, Inventory, OptionsChain, StockMarketData};
-use crate::strategy::wheel::{evaluate_wheel, PortfolioContext, TrendContext, WheelRecommendation};
+use crate::strategy::wheel::{evaluate_wheel, IvContext, PortfolioContext, WheelRecommendation};
 use crate::AppState;
 
 pub fn router(state: Arc<AppState>) -> Router {
@@ -259,33 +259,21 @@ async fn get_recommendations(
         &chains,
     );
 
-    // Fetch chart data for trend analysis (non-blocking, best-effort).
-    let trend_ctx = {
-        use crate::adapters::yahoo_finance::fetch_chart_data;
-        let yahoo = Arc::clone(&state.yahoo);
-        let tickers: Vec<String> = chains.iter().map(|c| c.ticker.clone()).collect();
-        let chart_tasks: Vec<_> = tickers
-            .iter()
-            .map(|ticker| {
-                let yahoo = Arc::clone(&yahoo);
-                let t = ticker.clone();
-                tokio::spawn(async move {
-                    match fetch_chart_data(&yahoo, &t, "3mo").await {
-                        Ok(candles) => Some((t, candles)),
-                        Err(_) => None,
-                    }
-                })
-            })
-            .collect();
-
-        let mut candles_map = std::collections::HashMap::new();
-        for task in chart_tasks {
-            if let Ok(Some((ticker, candles))) = task.await {
-                candles_map.insert(ticker.to_uppercase(), candles);
+    // Build IV context from candle data + options chains.
+    let iv_ctx = IvContext::from_data(
+        &{
+            // Re-read chart cache to get candle data for IV analysis
+            let cache = state.chart_cache.read().await;
+            let mut map = std::collections::HashMap::new();
+            for chain in &chains {
+                if let Some(candles) = cache.peek(&chain.ticker) {
+                    map.insert(chain.ticker.to_uppercase(), candles);
+                }
             }
-        }
-        TrendContext::from_candles(&candles_map)
-    };
+            map
+        },
+        &chains,
+    );
 
     // Run the wheel strategy engine to get pre-computed, validated trades.
     let recommendations = evaluate_wheel(
@@ -297,7 +285,7 @@ async fn get_recommendations(
         &earnings,
         &filter_params,
         Some(&portfolio_ctx),
-        Some(&trend_ctx),
+        Some(&iv_ctx),
     );
 
     // Build an LLM prompt that asks the model to rank these pre-computed trades.

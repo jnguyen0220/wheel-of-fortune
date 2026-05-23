@@ -1,16 +1,35 @@
 "use client";
 
-import React from "react";
-import type { FinancialHealth, AnalystTrend, EmaPullbackSignal, PositionTransaction } from "@/lib/types";
+import React, { useMemo } from "react";
+import type { FinancialHealth, AnalystTrend, PositionTransaction, IvSignal } from "@/lib/types";
 import { healthScoreColor, analystConsensus } from "@/lib/format";
 import TickerLink from "../TickerLink";
 import type { SortDir } from "./constants";
 
+// Module-level helpers (no allocations per render)
+const regimeLabel = (r: string) => r === "range_bound" ? "Range" : r === "volatile" ? "Volatile" : "Trend";
+const regimeColor = (r: string) => r === "range_bound" ? "text-[#3fb950]" : r === "volatile" ? "text-[#f85149]" : "text-[#d29922]";
+const actionLabel = (sig: IvSignal) => {
+  if (sig.premium_score < 35) return "Wait";
+  if (sig.premium_score < 55) return "Hold";
+  return sig.favored_leg === "csp" ? "Sell Put" : sig.favored_leg === "cc" ? "Sell Call" : "Sell Either";
+};
+const actionColor = (sig: IvSignal) => {
+  if (sig.premium_score < 35) return "bg-[#f85149]/8 border-[#f85149]/25 text-[#f85149]";
+  if (sig.premium_score < 55) return "bg-[#d29922]/8 border-[#d29922]/25 text-[#d29922]";
+  return sig.favored_leg === "csp" ? "bg-[#d29922]/8 border-[#d29922]/25 text-[#d29922]" : sig.favored_leg === "cc" ? "bg-[#58a6ff]/8 border-[#58a6ff]/25 text-[#58a6ff]" : "bg-[#3fb950]/8 border-[#3fb950]/25 text-[#3fb950]";
+};
+const actionDot = (sig: IvSignal) => {
+  if (sig.premium_score < 35) return "bg-[#f85149]";
+  if (sig.premium_score < 55) return "bg-[#d29922]";
+  return sig.favored_leg === "csp" ? "bg-[#d29922]" : sig.favored_leg === "cc" ? "bg-[#58a6ff]" : "bg-[#3fb950]";
+};
+
 interface SignalsTabProps {
-  signalResults: EmaPullbackSignal[];
+  signalResults: IvSignal[];
   signalLoading: boolean;
-  signalSort: { field: "ticker" | "price" | "health" | "chains" | "analyst" | "sector" | "strength" | "volume" | "candle"; dir: SortDir };
-  setSignalSort: React.Dispatch<React.SetStateAction<{ field: "ticker" | "price" | "health" | "chains" | "analyst" | "sector" | "strength" | "volume" | "candle"; dir: SortDir }>>;
+  signalSort: { field: "ticker" | "price" | "health" | "chains" | "analyst" | "sector" | "score" | "ivRank" | "regime"; dir: SortDir };
+  setSignalSort: React.Dispatch<React.SetStateAction<{ field: "ticker" | "price" | "health" | "chains" | "analyst" | "sector" | "score" | "ivRank" | "regime"; dir: SortDir }>>;
   signalHealth: Record<string, FinancialHealth>;
   signalChains: Record<string, number>;
   signalAnalyst: Record<string, AnalystTrend>;
@@ -19,11 +38,11 @@ interface SignalsTabProps {
   setWatchlist: (fn: (prev: string[]) => string[]) => void;
   removeFromWatchlist: (ticker: string) => void;
   setSelectedWatch: (ticker: string | null) => void;
-  setWatchDetailTab: (tab: "position" | "option" | "order" | "technicals") => void;
+  setWatchDetailTab: (tab: "position" | "option" | "order" | "iv") => void;
   scanSignals: () => void;
 }
 
-export default function SignalsTab({
+export default React.memo(function SignalsTab({
   signalResults,
   signalLoading,
   signalSort,
@@ -40,6 +59,21 @@ export default function SignalsTab({
   scanSignals,
 }: SignalsTabProps) {
 
+  const sortedSignals = useMemo(() => {
+    return [...signalResults].sort((a, b) => {
+      const dir = signalSort.dir === "asc" ? 1 : -1;
+      if (signalSort.field === "ticker") return dir * a.ticker.localeCompare(b.ticker);
+      if (signalSort.field === "sector") return dir * ((signalHealth[a.ticker]?.sector ?? "").localeCompare(signalHealth[b.ticker]?.sector ?? ""));
+      if (signalSort.field === "health") return dir * ((signalHealth[a.ticker]?.health_score ?? 0) - (signalHealth[b.ticker]?.health_score ?? 0));
+      if (signalSort.field === "chains") return dir * ((signalChains[a.ticker] ?? 0) - (signalChains[b.ticker] ?? 0));
+      if (signalSort.field === "analyst") return dir * (analystConsensus(signalAnalyst[a.ticker]).score - analystConsensus(signalAnalyst[b.ticker]).score);
+      if (signalSort.field === "score") return dir * (a.premium_score - b.premium_score);
+      if (signalSort.field === "ivRank") return dir * (a.iv_rank - b.iv_rank);
+      if (signalSort.field === "regime") return dir * a.regime.localeCompare(b.regime);
+      return dir * (a.price - b.price);
+    });
+  }, [signalResults, signalSort, signalHealth, signalChains, signalAnalyst]);
+
   return (
     <div className="flex-1 rounded-xl border border-[#21262d] bg-[#0d1117] overflow-hidden flex flex-col min-h-0">
       {/* Header */}
@@ -52,8 +86,8 @@ export default function SignalsTab({
               </svg>
             </div>
             <div>
-              <h3 className="text-xs font-semibold text-[#f0f6fc]">Wheel Signals</h3>
-              <p className="text-[10px] text-[#8b949e] mt-0.5">EMA pullback setups meeting 5/6+ criteria</p>
+              <h3 className="text-xs font-semibold text-[#f0f6fc]">Premium Signals</h3>
+              <p className="text-[10px] text-[#8b949e] mt-0.5">IV-ranked opportunities for selling premium</p>
             </div>
           </div>
           <button
@@ -80,8 +114,8 @@ export default function SignalsTab({
               </div>
             </div>
             <div className="text-center">
-              <p className="text-[11px] text-[#c9d1d9] font-medium">Scanning for pullback setups…</p>
-              <p className="text-[10px] text-[#484f58] mt-1">Analyzing screener tickers against EMA criteria</p>
+              <p className="text-[11px] text-[#c9d1d9] font-medium">Scanning premium opportunities…</p>
+              <p className="text-[10px] text-[#484f58] mt-1">Analyzing IV rank, HV spread, and regime for screener tickers</p>
             </div>
           </div>
         ) : signalResults.length === 0 ? (
@@ -91,8 +125,8 @@ export default function SignalsTab({
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5" />
               </svg>
             </div>
-            <p className="text-[11px] text-[#8b949e] font-medium">No signals detected</p>
-            <p className="text-[10px] text-[#484f58] mt-1 max-w-[260px]">No screener tickers currently meet the 5/6 EMA pullback criteria. Try rescanning later.</p>
+            <p className="text-[11px] text-[#8b949e] font-medium">No premium signals</p>
+            <p className="text-[10px] text-[#484f58] mt-1 max-w-[260px]">Click Rescan to analyze screener tickers for IV-based premium selling opportunities.</p>
           </div>
         ) : (
           <table className="w-full text-[11px]">
@@ -109,51 +143,38 @@ export default function SignalsTab({
                 <th className="text-left py-2.5 px-2.5 font-semibold cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "sector", dir: prev.field === "sector" && prev.dir === "asc" ? "desc" : "asc" }))}>
                   <span className="inline-flex items-center gap-1">Sector {signalSort.field === "sector" && <span className="text-[#58a6ff]">{signalSort.dir === "asc" ? "↑" : "↓"}</span>}</span>
                 </th>
-                <th className="text-left py-2.5 px-2.5 font-semibold">Signal</th>
+                <th className="text-left py-2.5 px-2.5 font-semibold">Action</th>
                 <th className="text-right py-2.5 px-2.5 font-semibold cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "price", dir: prev.field === "price" && prev.dir === "asc" ? "desc" : "asc" }))}>
                   <span className="inline-flex items-center gap-1 justify-end">Price {signalSort.field === "price" && <span className="text-[#58a6ff]">{signalSort.dir === "asc" ? "↑" : "↓"}</span>}</span>
+                </th>
+                <th className="text-center py-2.5 px-2.5 font-semibold cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "score", dir: prev.field === "score" && prev.dir === "desc" ? "asc" : "desc" }))}>
+                  <span className="inline-flex items-center gap-1 justify-center">Score {signalSort.field === "score" && <span className="text-[#58a6ff]">{signalSort.dir === "asc" ? "↑" : "↓"}</span>}</span>
+                </th>
+                <th className="text-center py-2.5 px-2.5 font-semibold cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "ivRank", dir: prev.field === "ivRank" && prev.dir === "desc" ? "asc" : "desc" }))}>
+                  <span className="inline-flex items-center gap-1 justify-center">IV Rank {signalSort.field === "ivRank" && <span className="text-[#58a6ff]">{signalSort.dir === "asc" ? "↑" : "↓"}</span>}</span>
+                </th>
+                <th className="text-center py-2.5 px-2.5 font-semibold cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "regime", dir: prev.field === "regime" && prev.dir === "asc" ? "desc" : "asc" }))}>
+                  <span className="inline-flex items-center gap-1 justify-center">Regime {signalSort.field === "regime" && <span className="text-[#58a6ff]">{signalSort.dir === "asc" ? "↑" : "↓"}</span>}</span>
                 </th>
                 <th className="text-center py-2.5 px-2.5 font-semibold cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "health", dir: prev.field === "health" && prev.dir === "desc" ? "asc" : "desc" }))}>
                   <span className="inline-flex items-center gap-1 justify-center">Health {signalSort.field === "health" && <span className="text-[#58a6ff]">{signalSort.dir === "asc" ? "↑" : "↓"}</span>}</span>
                 </th>
-                <th className="text-center py-2.5 px-2.5 font-semibold cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "chains", dir: prev.field === "chains" && prev.dir === "desc" ? "asc" : "desc" }))}>
-                  <span className="inline-flex items-center gap-1 justify-center">Activity {signalSort.field === "chains" && <span className="text-[#58a6ff]">{signalSort.dir === "asc" ? "↑" : "↓"}</span>}</span>
-                </th>
                 <th className="text-center py-2.5 px-2.5 font-semibold cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "analyst", dir: prev.field === "analyst" && prev.dir === "desc" ? "asc" : "desc" }))}>
                   <span className="inline-flex items-center gap-1 justify-center">Analyst {signalSort.field === "analyst" && <span className="text-[#58a6ff]">{signalSort.dir === "asc" ? "↑" : "↓"}</span>}</span>
                 </th>
-                <th className="text-right py-2.5 px-2.5 font-semibold">RSI</th>
-                <th className="text-center py-2.5 px-2.5 font-semibold cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "strength", dir: prev.field === "strength" && prev.dir === "desc" ? "asc" : "desc" }))}>
-                  <span className="inline-flex items-center gap-1 justify-center">Strength {signalSort.field === "strength" && <span className="text-[#58a6ff]">{signalSort.dir === "asc" ? "↑" : "↓"}</span>}</span>
-                </th>
-                <th className="text-center py-2.5 px-2.5 font-semibold cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "volume", dir: prev.field === "volume" && prev.dir === "desc" ? "asc" : "desc" }))}>
-                  <span className="inline-flex items-center gap-1 justify-center">Vol {signalSort.field === "volume" && <span className="text-[#58a6ff]">{signalSort.dir === "asc" ? "↑" : "↓"}</span>}</span>
-                </th>
-                <th className="text-center py-2.5 px-2.5 font-semibold cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "candle", dir: prev.field === "candle" && prev.dir === "desc" ? "asc" : "desc" }))}>
-                  <span className="inline-flex items-center gap-1 justify-center">Candle {signalSort.field === "candle" && <span className="text-[#58a6ff]">{signalSort.dir === "asc" ? "↑" : "↓"}</span>}</span>
+                <th className="text-center py-2.5 px-2.5 font-semibold cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "chains", dir: prev.field === "chains" && prev.dir === "desc" ? "asc" : "desc" }))}>
+                  <span className="inline-flex items-center gap-1 justify-center">Activity {signalSort.field === "chains" && <span className="text-[#58a6ff]">{signalSort.dir === "asc" ? "↑" : "↓"}</span>}</span>
                 </th>
                 <th className="w-10"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#161b22]">
-              {[...signalResults].sort((a, b) => {
-                const dir = signalSort.dir === "asc" ? 1 : -1;
-                if (signalSort.field === "ticker") return dir * a.ticker.localeCompare(b.ticker);
-                if (signalSort.field === "sector") return dir * ((signalHealth[a.ticker]?.sector ?? "").localeCompare(signalHealth[b.ticker]?.sector ?? ""));
-                if (signalSort.field === "health") return dir * ((signalHealth[a.ticker]?.health_score ?? 0) - (signalHealth[b.ticker]?.health_score ?? 0));
-                if (signalSort.field === "chains") return dir * ((signalChains[a.ticker] ?? 0) - (signalChains[b.ticker] ?? 0));
-                if (signalSort.field === "analyst") {
-                  return dir * (analystConsensus(signalAnalyst[a.ticker]).score - analystConsensus(signalAnalyst[b.ticker]).score);
-                }
-                if (signalSort.field === "strength") return dir * (a.criteria_met - b.criteria_met);
-                if (signalSort.field === "volume") return dir * ((a.volume_increasing ? 1 : 0) - (b.volume_increasing ? 1 : 0));
-                if (signalSort.field === "candle") return dir * ((a.candle_confirmed ? 1 : 0) - (b.candle_confirmed ? 1 : 0));
-                return dir * (a.price - b.price);
-              }).map((sig) => {
-                const isCsp = sig.direction === "call";
-                const hasShares = (positions[sig.ticker] || []).reduce((s, tx) => s + (tx.type === "buy" ? tx.quantity : -tx.quantity), 0) > 0;
-                const ccDisabled = !isCsp && !hasShares;
+              {sortedSignals.map((sig) => {
                 const isWatched = watchlist.includes(sig.ticker.toUpperCase());
+                const score = Math.round(sig.premium_score);
+                const scoreColor = score >= 70 ? "text-[#3fb950]" : score >= 50 ? "text-[#d29922]" : "text-[#f85149]";
+                const hasShares = (positions[sig.ticker] || []).reduce((s, tx) => s + (tx.type === "buy" ? tx.quantity : -tx.quantity), 0) > 0;
+                const ccDisabled = sig.favored_leg === "cc" && !hasShares;
                 return (
                   <tr key={sig.ticker} className="group hover:bg-[#161b22]/80 transition-colors">
                     <td className="py-3 px-2 text-center w-9">
@@ -191,12 +212,12 @@ export default function SignalsTab({
                     <td className="py-3 px-2.5">
                       {ccDisabled ? (
                         <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-medium bg-[#21262d] border border-[#30363d] text-[#6e7681]">
-                          CC — No shares
+                          Sell Call — No shares
                         </span>
                       ) : (
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[9px] font-bold border ${isCsp ? "bg-[#d29922]/8 border-[#d29922]/25 text-[#d29922]" : "bg-[#58a6ff]/8 border-[#58a6ff]/25 text-[#58a6ff]"}`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${isCsp ? "bg-[#d29922]" : "bg-[#58a6ff]"}`} />
-                          {isCsp ? "Sell CSP" : "Sell CC"}
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[9px] font-bold border ${actionColor(sig)}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${actionDot(sig)}`} />
+                          {actionLabel(sig)}
                         </span>
                       )}
                     </td>
@@ -204,22 +225,30 @@ export default function SignalsTab({
                       <span className="text-[#f0f6fc] tabular-nums font-semibold">${sig.price.toFixed(2)}</span>
                     </td>
                     <td className="py-3 px-2.5 text-center">
+                      <div className="flex items-center justify-center gap-1.5" title={sig.action}>
+                        <div className="flex gap-px">
+                          {Array.from({ length: 5 }).map((_, i) => (
+                            <div key={i} className={`w-1.5 h-3 rounded-sm ${i < sig.criteria_met ? (score >= 70 ? "bg-[#3fb950]" : score >= 50 ? "bg-[#d29922]" : "bg-[#f85149]") : "bg-[#21262d]"}`} />
+                          ))}
+                        </div>
+                        <span className={`text-[10px] font-bold tabular-nums ${scoreColor}`}>{score}</span>
+                      </div>
+                    </td>
+                    <td className="py-3 px-2.5 text-center">
+                      <span className={`text-[10px] font-bold tabular-nums ${sig.iv_rank >= 60 ? "text-[#3fb950]" : sig.iv_rank >= 40 ? "text-[#d29922]" : "text-[#f85149]"}`} title={`IV/HV ratio: ${sig.iv_hv_ratio.toFixed(2)} | ATM IV: ${(sig.atm_iv * 100).toFixed(0)}% | HV20: ${(sig.hv_20 * 100).toFixed(0)}%`}>
+                        {Math.round(sig.iv_rank)}%
+                      </span>
+                    </td>
+                    <td className="py-3 px-2.5 text-center">
+                      <span className={`text-[10px] font-semibold ${regimeColor(sig.regime)}`}>
+                        {regimeLabel(sig.regime)}
+                      </span>
+                    </td>
+                    <td className="py-3 px-2.5 text-center">
                       {signalHealth[sig.ticker] ? (
                         <span className={`inline-flex items-center justify-center w-8 h-5 rounded text-[10px] font-bold tabular-nums ${healthScoreColor(signalHealth[sig.ticker].health_score)} bg-current/8`}>
                           <span className={healthScoreColor(signalHealth[sig.ticker].health_score)}>{signalHealth[sig.ticker].health_score}</span>
                         </span>
-                      ) : (
-                        <span className="text-[#30363d]">—</span>
-                      )}
-                    </td>
-                    <td className="py-3 px-2.5 text-center">
-                      {signalChains[sig.ticker] != null ? (
-                        <div className="flex items-center justify-center gap-1">
-                          <span
-                            className={`w-2 h-2 rounded-full ${signalChains[sig.ticker] >= 50 ? "bg-[#3fb950]" : signalChains[sig.ticker] >= 20 ? "bg-[#d29922]" : "bg-[#f85149]"}`}
-                          />
-                          <span className="text-[10px] text-[#8b949e] tabular-nums">{signalChains[sig.ticker]}</span>
-                        </div>
                       ) : (
                         <span className="text-[#30363d]">—</span>
                       )}
@@ -237,41 +266,16 @@ export default function SignalsTab({
                         );
                       })()}
                     </td>
-                    <td className="py-3 px-2.5 text-right">
-                      <span className={`tabular-nums font-semibold ${sig.rsi > 70 ? "text-[#f85149]" : sig.rsi < 30 ? "text-[#3fb950]" : "text-[#c9d1d9]"}`}>{sig.rsi.toFixed(1)}</span>
-                    </td>
                     <td className="py-3 px-2.5 text-center">
-                      <div className="inline-flex items-center gap-1">
-                        <div className="flex gap-px">
-                          {Array.from({ length: 6 }).map((_, i) => (
-                            <div key={i} className={`w-1 h-3 rounded-sm ${i < sig.criteria_met ? (sig.criteria_met >= 6 ? "bg-[#3fb950]" : "bg-[#d29922]") : "bg-[#21262d]"}`} />
-                          ))}
+                      {signalChains[sig.ticker] != null ? (
+                        <div className="flex items-center justify-center gap-1">
+                          <span
+                            className={`w-2 h-2 rounded-full ${signalChains[sig.ticker] >= 50 ? "bg-[#3fb950]" : signalChains[sig.ticker] >= 20 ? "bg-[#d29922]" : "bg-[#f85149]"}`}
+                          />
+                          <span className="text-[10px] text-[#8b949e] tabular-nums">{signalChains[sig.ticker]}</span>
                         </div>
-                        <span className={`text-[9px] font-bold tabular-nums ml-0.5 ${sig.criteria_met >= 6 ? "text-[#3fb950]" : "text-[#d29922]"}`}>{sig.criteria_met}</span>
-                      </div>
-                    </td>
-                    <td className="py-3 px-2.5 text-center">
-                      {sig.volume_increasing ? (
-                        <svg className="w-3.5 h-3.5 text-[#3fb950] mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 10.5 12 3m0 0 7.5 7.5M12 3v18" />
-                        </svg>
                       ) : (
                         <span className="text-[#30363d]">—</span>
-                      )}
-                    </td>
-                    <td className="py-3 px-2.5 text-center">
-                      {sig.candle_confirmed ? (
-                        <span className="inline-flex items-center justify-center w-4.5 h-4.5 rounded-full bg-[#3fb950]/15">
-                          <svg className="w-3 h-3 text-[#3fb950]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
-                          </svg>
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center justify-center w-4.5 h-4.5 rounded-full bg-[#21262d]">
-                          <svg className="w-3 h-3 text-[#484f58]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
-                          </svg>
-                        </span>
                       )}
                     </td>
                     <td className="py-3 px-2 text-center w-10">
@@ -294,4 +298,4 @@ export default function SignalsTab({
       </div>
     </div>
   );
-}
+});
