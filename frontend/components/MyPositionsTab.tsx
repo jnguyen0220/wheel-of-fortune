@@ -49,9 +49,7 @@ export default function MyPositionsTab() {
     };
     if (!txn.quantity || txn.quantity <= 0 || !txn.price || txn.price <= 0) return;
     setPositions(prev => ({ ...prev, [ticker]: [...(prev[ticker] || []), txn] }));
-    // Reset only qty and price, keep ticker/date/type
-    (form.elements.namedItem("quantity") as HTMLInputElement).value = "";
-    (form.elements.namedItem("price") as HTMLInputElement).value = "";
+    form.reset();
   }, [setPositions]);
 
   const deleteTxn = useCallback((ticker: string, id: string) => {
@@ -80,9 +78,10 @@ export default function MyPositionsTab() {
       const netShares = totalBuyQty - totalSellQty;
       const totalSellProceeds = sellTxns.reduce((s, t) => s + t.quantity * t.price, 0);
       const realizedPnl = totalSellQty > 0 ? totalSellProceeds - totalSellQty * avgCost : 0;
+      const netCashFlow = totalSellProceeds - totalBuyCost;
       const sorted = [...txns].sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
       const lastActive = sorted.length > 0 ? sorted[0].date : "";
-      return { ticker, txns: sorted, netShares, avgCost, txnCount: txns.length, lots: Math.floor(netShares / 100), realizedPnl, costBasis: netShares * avgCost, lastActive };
+      return { ticker, txns: sorted, netShares, avgCost, txnCount: txns.length, lots: Math.floor(netShares / 100), realizedPnl, netCashFlow, costBasis: netShares * avgCost, lastActive };
     })
     .sort((a, b) => {
       const aOpen = a.netShares > 0 ? 0 : 1;
@@ -97,7 +96,7 @@ export default function MyPositionsTab() {
 
   const totalShares = filteredTickers.reduce((s, t) => s + t.netShares, 0);
   const totalCostBasis = filteredTickers.reduce((s, t) => s + t.costBasis, 0);
-  const totalRealized = filteredTickers.reduce((s, t) => s + t.realizedPnl, 0);
+  const totalNetCashFlow = filteredTickers.reduce((s, t) => s + t.netCashFlow, 0);
   const totalLots = filteredTickers.reduce((s, t) => s + t.lots, 0);
 
   return (
@@ -120,9 +119,9 @@ export default function MyPositionsTab() {
           <div className="text-lg font-bold text-[#c9d1d9] tabular-nums leading-tight">${totalCostBasis.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
         </div>
         <div className="bg-[#161b22] border border-[#21262d] rounded-lg px-4 py-3">
-          <div className="text-[9px] text-[#484f58] uppercase tracking-wider font-medium mb-1">Realized P&L</div>
-          <div className={`text-lg font-bold tabular-nums leading-tight ${totalRealized >= 0 ? "text-[#3fb950]" : "text-[#f85149]"}`}>
-            {totalRealized >= 0 ? "+" : ""}${totalRealized.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+          <div className="text-[9px] text-[#484f58] uppercase tracking-wider font-medium mb-1">Net Cash Flow</div>
+          <div className={`text-lg font-bold tabular-nums leading-tight ${totalNetCashFlow >= 0 ? "text-[#3fb950]" : "text-[#f85149]"}`}>
+            {totalNetCashFlow >= 0 ? "+" : "-"}${Math.abs(totalNetCashFlow).toLocaleString(undefined, { maximumFractionDigits: 0 })}
           </div>
         </div>
       </div>
@@ -292,13 +291,13 @@ export default function MyPositionsTab() {
                 <td colSpan={3} className="px-3 py-2.5 text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">Grand Total</td>
                 <td className="px-3 py-2.5 text-right text-[#c9d1d9] tabular-nums font-bold">{totalShares.toLocaleString()}</td>
                 <td className="px-3 py-2.5 text-right text-[#8b949e] tabular-nums font-bold">${totalShares > 0 ? (totalCostBasis / totalShares).toFixed(2) : "0.00"}</td>
-                <td className={`px-3 py-2.5 text-right tabular-nums font-bold ${totalRealized >= 0 ? "text-[#3fb950]" : "text-[#f85149]"}`}>{totalRealized >= 0 ? "+" : ""}${totalRealized.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                <td className={`px-3 py-2.5 text-right tabular-nums font-bold ${totalNetCashFlow >= 0 ? "text-[#3fb950]" : "text-[#f85149]"}`}>{totalNetCashFlow >= 0 ? "+" : "-"}${Math.abs(totalNetCashFlow).toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
                 <td></td>
               </tr>
             </tbody>
           </table>
 
-          {filteredTickers.map(({ ticker, txns, netShares, avgCost, txnCount, lots, realizedPnl, lastActive }) => {
+          {filteredTickers.map(({ ticker, txns, netShares, avgCost, txnCount, lots, realizedPnl, netCashFlow, lastActive }) => {
             const isCollapsed = collapsed[ticker] ?? true;
             return (
               <div key={ticker} className="border border-[#21262d] rounded-lg overflow-hidden bg-[#0d1117]">
@@ -339,7 +338,7 @@ export default function MyPositionsTab() {
                         <span className="text-[#8b949e] font-bold">${avgCost.toFixed(2)}</span>
                       </td>
                       <td className="px-3 py-2 text-right text-[10px] tabular-nums">
-                        <span className={`font-bold ${realizedPnl >= 0 ? "text-[#3fb950]" : "text-[#f85149]"}`}>{realizedPnl >= 0 ? "+" : ""}${realizedPnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                        <span className={`font-bold ${netCashFlow >= 0 ? "text-[#3fb950]" : "text-[#f85149]"}`}>{netCashFlow >= 0 ? "+" : "-"}${Math.abs(netCashFlow).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                       </td>
                       <td></td>
                     </tr>
@@ -371,7 +370,7 @@ export default function MyPositionsTab() {
                           <td className="px-3 py-2 text-[#8b949e] tabular-nums">{row.date}</td>
                           <td className="px-3 py-2 text-right text-[#c9d1d9] tabular-nums">{row.quantity}</td>
                           <td className="px-3 py-2 text-right text-[#c9d1d9] tabular-nums">${row.price.toFixed(2)}</td>
-                          <td className="px-3 py-2 text-right text-[#c9d1d9] tabular-nums font-medium">${(row.quantity * row.price).toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
+                          <td className={`px-3 py-2 text-right tabular-nums font-medium ${row.type === "buy" ? "text-[#f85149]" : "text-[#3fb950]"}`}>{row.type === "buy" ? "-" : "+"}${(row.quantity * row.price).toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
                           <td className="px-2 py-2">
                             <button
                               onClick={(e) => { e.stopPropagation(); deleteTxn(ticker, row.id); }}
@@ -393,8 +392,8 @@ export default function MyPositionsTab() {
                         <td colSpan={3} className="px-3 py-2 text-right text-[9px] font-semibold text-[#484f58] uppercase tracking-wider">Subtotal</td>
                         <td className="px-3 py-2 text-right text-[#c9d1d9] tabular-nums font-bold text-[10px]">{netShares.toLocaleString()}</td>
                         <td className="px-3 py-2 text-right text-[#8b949e] tabular-nums font-bold text-[10px]">${avgCost.toFixed(2)}</td>
-                        <td className="px-3 py-2 text-right tabular-nums font-bold text-[10px]">
-                          <span className={realizedPnl >= 0 ? "text-[#3fb950]" : "text-[#f85149]"}>{realizedPnl >= 0 ? "+" : ""}${realizedPnl.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                        <td className={`px-3 py-2 text-right tabular-nums font-bold text-[10px] ${netCashFlow >= 0 ? "text-[#3fb950]" : "text-[#f85149]"}`}>
+                          {netCashFlow >= 0 ? "+" : "-"}${Math.abs(netCashFlow).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                         </td>
                         <td></td>
                       </tr>

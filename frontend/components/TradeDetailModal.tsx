@@ -813,7 +813,7 @@ export default function TradeDetailModal({
                                   )}
                                   {ccRecs.map((r, i) => {
                                     const contracts = r.contracts_allocated ?? 1;
-                                    const mid = (r.contract.bid + r.contract.ask) / 2;
+                                    const mid = (r.contract.bid > 0 && r.contract.ask > 0) ? (r.contract.bid + r.contract.ask) / 2 : r.contract.last;
                                     const otm = ((r.contract.strike - r.contract.underlying_price) / r.contract.underlying_price) * 100;
                                     const label = Math.abs(r.contract.delta) <= 0.24 ? "Consrv" : Math.abs(r.contract.delta) >= 0.29 ? "Aggrss" : "Modrt";
                                     return (
@@ -865,7 +865,7 @@ export default function TradeDetailModal({
                                     </tr>
                                   )}
                                   {cspRecs.map((r, i) => {
-                                    const mid = (r.contract.bid + r.contract.ask) / 2;
+                                    const mid = (r.contract.bid > 0 && r.contract.ask > 0) ? (r.contract.bid + r.contract.ask) / 2 : r.contract.last;
                                     const otm = ((r.contract.underlying_price - r.contract.strike) / r.contract.underlying_price) * 100;
                                     return (
                                       <tr key={`csp-${i}`} className="border-t border-[#21262d]/30 hover:bg-[#161b22]/60 transition-colors">

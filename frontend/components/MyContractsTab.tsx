@@ -34,9 +34,11 @@ export default function MyContractsTab() {
   const [formExpiration, setFormExpiration] = useState("");
   const [formContracts, setFormContracts] = useState("1");
   const [formPremium, setFormPremium] = useState("");
+  const [formValidation, setFormValidation] = useState(false);
 
   const resetForm = useCallback(() => {
     setFormTicker(""); setFormStrike(""); setFormExpiration(""); setFormContracts("1"); setFormPremium("");
+    setFormValidation(false);
   }, []);
 
   const addOrder = useCallback(() => {
@@ -44,7 +46,10 @@ export default function MyContractsTab() {
     const strike = parseFloat(formStrike);
     const premium = parseFloat(formPremium);
     const contracts = parseInt(formContracts, 10);
-    if (!ticker || isNaN(strike) || strike <= 0 || isNaN(premium) || premium < 0 || isNaN(contracts) || contracts <= 0 || !formExpiration) return;
+    if (!ticker || isNaN(strike) || strike <= 0 || isNaN(premium) || premium < 0 || isNaN(contracts) || contracts <= 0 || !formExpiration) {
+      setFormValidation(true);
+      return;
+    }
 
     const newOrder: OptionsOrder = {
       id: crypto.randomUUID(),
@@ -163,9 +168,9 @@ export default function MyContractsTab() {
                 <input
                   type="text"
                   value={formTicker}
-                  onChange={e => setFormTicker(e.target.value)}
+                  onChange={e => { setFormTicker(e.target.value); setFormValidation(false); }}
                   placeholder="AAPL"
-                  className="w-full rounded border border-[#30363d] bg-[#0d1117] text-[11px] text-[#c9d1d9] px-2.5 py-1.5 focus:outline-none focus:border-[#58a6ff] placeholder:text-[#30363d]"
+                  className={`w-full rounded border bg-[#0d1117] text-[11px] text-[#c9d1d9] px-2.5 py-1.5 focus:outline-none focus:border-[#58a6ff] placeholder:text-[#30363d] ${formValidation && !formTicker.trim() ? "border-[#f85149]" : "border-[#30363d]"}`}
                 />
               </div>
               <div>
@@ -184,11 +189,11 @@ export default function MyContractsTab() {
                 <input
                   type="number"
                   value={formStrike}
-                  onChange={e => setFormStrike(e.target.value)}
+                  onChange={e => { setFormStrike(e.target.value); setFormValidation(false); }}
                   placeholder="150.00"
                   min="0"
                   step="0.01"
-                  className="w-full rounded border border-[#30363d] bg-[#0d1117] text-[11px] text-[#c9d1d9] px-2.5 py-1.5 focus:outline-none focus:border-[#58a6ff] placeholder:text-[#30363d] tabular-nums"
+                  className={`w-full rounded border bg-[#0d1117] text-[11px] text-[#c9d1d9] px-2.5 py-1.5 focus:outline-none focus:border-[#58a6ff] placeholder:text-[#30363d] tabular-nums ${formValidation && (isNaN(parseFloat(formStrike)) || parseFloat(formStrike) <= 0) ? "border-[#f85149]" : "border-[#30363d]"}`}
                 />
               </div>
               <div>
@@ -196,8 +201,8 @@ export default function MyContractsTab() {
                 <input
                   type="date"
                   value={formExpiration}
-                  onChange={e => setFormExpiration(e.target.value)}
-                  className="w-full rounded border border-[#30363d] bg-[#0d1117] text-[11px] text-[#c9d1d9] px-2.5 py-1.5 focus:outline-none focus:border-[#58a6ff] tabular-nums"
+                  onChange={e => { setFormExpiration(e.target.value); setFormValidation(false); }}
+                  className={`w-full rounded border bg-[#0d1117] text-[11px] text-[#c9d1d9] px-2.5 py-1.5 focus:outline-none focus:border-[#58a6ff] tabular-nums ${formValidation && !formExpiration ? "border-[#f85149]" : "border-[#30363d]"}`}
                 />
               </div>
               <div>
@@ -216,11 +221,11 @@ export default function MyContractsTab() {
                 <input
                   type="number"
                   value={formPremium}
-                  onChange={e => setFormPremium(e.target.value)}
+                  onChange={e => { setFormPremium(e.target.value); setFormValidation(false); }}
                   placeholder="1.50"
                   min="0"
                   step="0.01"
-                  className="w-full rounded border border-[#30363d] bg-[#0d1117] text-[11px] text-[#c9d1d9] px-2.5 py-1.5 focus:outline-none focus:border-[#58a6ff] placeholder:text-[#30363d] tabular-nums"
+                  className={`w-full rounded border bg-[#0d1117] text-[11px] text-[#c9d1d9] px-2.5 py-1.5 focus:outline-none focus:border-[#58a6ff] placeholder:text-[#30363d] tabular-nums ${formValidation && (isNaN(parseFloat(formPremium)) || parseFloat(formPremium) < 0) ? "border-[#f85149]" : "border-[#30363d]"}`}
                 />
               </div>
               <div className="flex gap-2">

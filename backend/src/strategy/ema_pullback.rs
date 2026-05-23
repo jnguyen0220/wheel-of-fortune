@@ -300,10 +300,10 @@ pub fn analyse(ticker: &str, candles: &[Candle]) -> Option<EmaPullbackSignal> {
 
     let candle_confirmed = match direction {
         SignalDirection::Call => {
-            last_candle.close > last_candle.open
+            last_candle.close > last_candle.open && last_candle.low <= ema_20_now * 1.01
         }
         SignalDirection::Put => {
-            last_candle.close < last_candle.open
+            last_candle.close < last_candle.open && last_candle.high >= ema_20_now * 0.99
         }
     };
 

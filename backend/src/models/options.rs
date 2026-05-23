@@ -42,8 +42,6 @@ impl OptionsContract {
     pub fn mid_price(&self) -> f64 {
         if self.bid > 0.0 && self.ask > 0.0 {
             (self.bid + self.ask) / 2.0
-        } else if self.bid > 0.0 || self.ask > 0.0 {
-            self.bid + self.ask // one is zero, so this gives the non-zero one
         } else {
             self.last
         }
