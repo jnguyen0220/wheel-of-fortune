@@ -21,7 +21,7 @@ use chrono::Datelike;
 use reqwest::Client;
 use serde::Deserialize;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tracing::{debug, instrument};
 
@@ -364,6 +364,8 @@ impl YahooSession {
         let http = Client::builder()
             .user_agent(YF_USER_AGENT)
             .pool_max_idle_per_host(20)
+            .timeout(Duration::from_secs(30))
+            .connect_timeout(Duration::from_secs(10))
             .build()
             .expect("Failed to build shared HTTP client");
         Self {
@@ -400,12 +402,6 @@ impl YahooSession {
             acquired_at: Instant::now(),
         });
         Ok((client, crumb))
-    }
-
-    /// Invalidate the cached session (e.g. after a 401 response).
-    pub async fn invalidate(&self) {
-        let mut guard = self.inner.write().await;
-        *guard = None;
     }
 }
 
@@ -1148,6 +1144,189 @@ pub async fn fetch_financial_health(
     crate::models::compute_health_score(&mut health);
 
     Ok(health)
+}
+
+// ── Combined quoteSummary fetch (all modules in one call) ─────────────────────
+
+/// Result of a combined quoteSummary fetch containing all data for a single ticker.
+pub struct CombinedQuoteSummary {
+    pub earnings_calendar: Vec<EarningsCalendar>,
+    pub earnings_history: Vec<EarningsResult>,
+    pub analyst_trends: Vec<AnalystTrend>,
+    pub financial_health: Option<crate::models::FinancialHealth>,
+}
+
+/// Fetch all quoteSummary modules in a single API call instead of 4 separate calls.
+/// This reduces HTTP round-trips by 4x per ticker.
+#[instrument(skip(client, crumb))]
+pub async fn fetch_combined_quote_summary(
+    client: &Client,
+    crumb: &str,
+    ticker: &str,
+) -> Result<CombinedQuoteSummary> {
+    let url = format!(
+        "https://query1.finance.yahoo.com/v10/finance/quoteSummary/{ticker}?modules=calendarEvents,earningsHistory,recommendationTrend,financialData,defaultKeyStatistics,quoteType,assetProfile&crumb={crumb}",
+        ticker = ticker.to_uppercase(),
+    );
+
+    let resp = client
+        .get(&url)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .context("Failed to fetch combined quoteSummary")?;
+
+    if !resp.status().is_success() {
+        anyhow::bail!(
+            "Yahoo Finance returned HTTP {} for combined quoteSummary of {}",
+            resp.status(),
+            ticker
+        );
+    }
+
+    let envelope: QuoteSummaryEnvelope = resp
+        .json()
+        .await
+        .context("Failed to parse combined quoteSummary JSON")?;
+
+    let result = envelope
+        .quote_summary
+        .and_then(|qs| qs.result)
+        .and_then(|r| r.into_iter().next())
+        .unwrap_or(QuoteSummaryResult {
+            calendar_events: None,
+            earnings_history: None,
+            recommendation_trend: None,
+            financial_data: None,
+            default_key_statistics: None,
+            quote_type: None,
+            asset_profile: None,
+        });
+
+    // Parse earnings calendar
+    let today = chrono::Local::now().naive_local().date();
+    let cal_dates = result.calendar_events
+        .and_then(|ce| ce.earnings)
+        .and_then(|e| e.earnings_date)
+        .unwrap_or_default();
+    let mut earnings_calendar = Vec::new();
+    for ts_val in cal_dates {
+        if let Some(ts) = ts_val.raw {
+            if let Some(dt) = chrono::DateTime::<chrono::Utc>::from_timestamp(ts, 0) {
+                let date = dt.naive_utc().date();
+                let days_until = (date - today).num_days();
+                if days_until >= -7 && days_until <= 90 {
+                    earnings_calendar.push(EarningsCalendar {
+                        ticker: ticker.to_uppercase(),
+                        earnings_date: date,
+                        days_until,
+                        time_of_day: ts_val.fmt.clone().unwrap_or_else(|| "TAS".to_string()),
+                    });
+                }
+            }
+        }
+    }
+
+    // Parse earnings history
+    let history_items = result.earnings_history
+        .and_then(|eh| eh.history)
+        .unwrap_or_default();
+    let mut earnings_history = Vec::new();
+    for item in history_items {
+        let quarter_ts = item.quarter.and_then(|q| q.raw).unwrap_or(0);
+        let report_date = chrono::DateTime::<chrono::Utc>::from_timestamp(quarter_ts, 0)
+            .map(|dt| dt.naive_utc().date())
+            .unwrap_or_else(|| chrono::NaiveDate::from_ymd_opt(2000, 1, 1).unwrap());
+        let eps_est = item.eps_estimate.and_then(|e| e.raw);
+        let eps_act = item.eps_actual.and_then(|e| e.raw);
+        let eps_diff = item.eps_difference.and_then(|e| e.raw);
+        let beat = match (eps_est, eps_act) {
+            (Some(est), Some(act)) => Some(act >= est),
+            _ => None,
+        };
+        let q = match report_date.month() {
+            1..=3 => "Q1",
+            4..=6 => "Q2",
+            7..=9 => "Q3",
+            _ => "Q4",
+        };
+        earnings_history.push(EarningsResult {
+            ticker: ticker.to_uppercase(),
+            report_date,
+            fiscal_quarter: format!("{} {}", q, report_date.year()),
+            eps_estimate: eps_est,
+            eps_actual: eps_act,
+            eps_surprise: eps_diff,
+            revenue_estimate: None,
+            revenue_actual: None,
+            beat,
+        });
+    }
+
+    // Parse analyst trends
+    let rec_trends = result.recommendation_trend
+        .and_then(|rt| rt.trend)
+        .unwrap_or_default();
+    let analyst_trends: Vec<AnalystTrend> = rec_trends
+        .into_iter()
+        .map(|t| AnalystTrend {
+            ticker: ticker.to_uppercase(),
+            period: t.period.unwrap_or_default(),
+            strong_buy: t.strong_buy.unwrap_or(0),
+            buy: t.buy.unwrap_or(0),
+            hold: t.hold.unwrap_or(0),
+            sell: t.sell.unwrap_or(0),
+            strong_sell: t.strong_sell.unwrap_or(0),
+        })
+        .collect();
+
+    // Parse financial health
+    let fd = result.financial_data;
+    let ks = result.default_key_statistics;
+    let qt = result.quote_type;
+    let ap = result.asset_profile;
+
+    let financial_health = if fd.is_some() || ks.is_some() {
+        let mut health = crate::models::FinancialHealth {
+            ticker: ticker.to_uppercase(),
+            name: qt.and_then(|q| q.long_name.or(q.short_name)),
+            sector: ap.as_ref().and_then(|a| a.sector.clone()),
+            description: ap.and_then(|a| a.long_business_summary),
+            revenue: fd.as_ref().and_then(|f| f.total_revenue.as_ref()).and_then(|v| v.raw),
+            revenue_growth: fd.as_ref().and_then(|f| f.revenue_growth.as_ref()).and_then(|v| v.raw),
+            net_income: fd.as_ref().and_then(|f| f.net_income_to_common.as_ref()).and_then(|v| v.raw),
+            profit_margin: fd.as_ref().and_then(|f| f.profit_margins.as_ref()).and_then(|v| v.raw),
+            operating_margin: fd.as_ref().and_then(|f| f.operating_margins.as_ref()).and_then(|v| v.raw),
+            earnings_per_share: ks.as_ref().and_then(|k| k.trailing_eps.as_ref()).and_then(|v| v.raw),
+            total_cash: fd.as_ref().and_then(|f| f.total_cash.as_ref()).and_then(|v| v.raw),
+            total_debt: fd.as_ref().and_then(|f| f.total_debt.as_ref()).and_then(|v| v.raw),
+            free_cash_flow: fd.as_ref().and_then(|f| f.free_cashflow.as_ref()).and_then(|v| v.raw),
+            operating_cash_flow: fd.as_ref().and_then(|f| f.operating_cashflow.as_ref()).and_then(|v| v.raw),
+            current_ratio: fd.as_ref().and_then(|f| f.current_ratio.as_ref()).and_then(|v| v.raw),
+            debt_to_equity: fd.as_ref().and_then(|f| f.debt_to_equity.as_ref()).and_then(|v| v.raw),
+            return_on_equity: fd.as_ref().and_then(|f| f.return_on_equity.as_ref()).and_then(|v| v.raw),
+            return_on_assets: fd.as_ref().and_then(|f| f.return_on_assets.as_ref()).and_then(|v| v.raw),
+            trailing_pe: ks.as_ref().and_then(|k| k.trailing_pe.as_ref()).and_then(|v| v.raw),
+            forward_pe: ks.as_ref().and_then(|k| k.forward_pe.as_ref()).and_then(|v| v.raw),
+            peg_ratio: ks.as_ref().and_then(|k| k.peg_ratio.as_ref()).and_then(|v| v.raw),
+            price_to_book: ks.as_ref().and_then(|k| k.price_to_book.as_ref()).and_then(|v| v.raw),
+            health_score: 0,
+            verdict: String::new(),
+            strengths: Vec::new(),
+            concerns: Vec::new(),
+        };
+        crate::models::compute_health_score(&mut health);
+        Some(health)
+    } else {
+        None
+    };
+
+    Ok(CombinedQuoteSummary {
+        earnings_calendar,
+        earnings_history,
+        analyst_trends,
+        financial_health,
+    })
 }
 
 // ── Screener / undervalue data ────────────────────────────────────────────────

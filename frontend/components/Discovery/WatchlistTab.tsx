@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useMemo } from "react";
 import type { FinancialHealth, AnalystTrend, StockMarketData, EarningsCalendar, EarningsResult, PositionTransaction, OptionsOrder } from "@/lib/types";
 import { healthScoreColor, analystConsensus } from "@/lib/format";
 import { useHealthPopup } from "../HealthPopupContext";
@@ -67,6 +67,34 @@ export default function WatchlistTab({
       </svg>
     ) : null
   );
+
+  const sortedWatchlist = useMemo(() => {
+    return [...watchlist].sort((a, b) => {
+      let cmp = 0;
+      switch (watchSortField) {
+        case "ticker": cmp = a.localeCompare(b); break;
+        case "name": cmp = (watchBatch.financials[a]?.name ?? "").localeCompare(watchBatch.financials[b]?.name ?? ""); break;
+        case "price": cmp = (watchBatch.market_data[a]?.price ?? 0) - (watchBatch.market_data[b]?.price ?? 0); break;
+        case "health": cmp = (watchBatch.financials[a]?.health_score ?? -1) - (watchBatch.financials[b]?.health_score ?? -1); break;
+        case "sector": cmp = (watchBatch.financials[a]?.sector ?? "").localeCompare(watchBatch.financials[b]?.sector ?? ""); break;
+        case "analyst": {
+          const tA = watchBatch.analyst_trends[a];
+          const tB = watchBatch.analyst_trends[b];
+          const curA = tA?.find((x: { period: string }) => x.period === "0m") || tA?.[0];
+          const curB = tB?.find((x: { period: string }) => x.period === "0m") || tB?.[0];
+          cmp = analystConsensus(curA).score - analystConsensus(curB).score;
+          break;
+        }
+        case "positions": {
+          const netA = (positions[a] || []).reduce((s, tx) => s + (tx.type === "buy" ? tx.quantity : -tx.quantity), 0);
+          const netB = (positions[b] || []).reduce((s, tx) => s + (tx.type === "buy" ? tx.quantity : -tx.quantity), 0);
+          cmp = netA - netB; break;
+        }
+      }
+      if (cmp === 0) cmp = a.localeCompare(b);
+      return watchSortDir === "asc" ? cmp : -cmp;
+    });
+  }, [watchlist, watchSortField, watchSortDir, watchBatch, positions]);
 
   return (
     <div className="flex-1 rounded-xl border border-[#21262d] bg-[#0d1117] overflow-hidden flex flex-col min-h-0">
@@ -223,31 +251,7 @@ export default function WatchlistTab({
               </tr>
             </thead>
             <tbody>
-              {[...watchlist].sort((a, b) => {
-                let cmp = 0;
-                switch (watchSortField) {
-                  case "ticker": cmp = a.localeCompare(b); break;
-                  case "name": cmp = (watchBatch.financials[a]?.name ?? "").localeCompare(watchBatch.financials[b]?.name ?? ""); break;
-                  case "price": cmp = (watchBatch.market_data[a]?.price ?? 0) - (watchBatch.market_data[b]?.price ?? 0); break;
-                  case "health": cmp = (watchBatch.financials[a]?.health_score ?? -1) - (watchBatch.financials[b]?.health_score ?? -1); break;
-                  case "sector": cmp = (watchBatch.financials[a]?.sector ?? "").localeCompare(watchBatch.financials[b]?.sector ?? ""); break;
-                  case "analyst": {
-                    const tA = watchBatch.analyst_trends[a];
-                    const tB = watchBatch.analyst_trends[b];
-                    const curA = tA?.find((x: { period: string }) => x.period === "0m") || tA?.[0];
-                    const curB = tB?.find((x: { period: string }) => x.period === "0m") || tB?.[0];
-                    cmp = analystConsensus(curA).score - analystConsensus(curB).score;
-                    break;
-                  }
-                  case "positions": {
-                    const netA = (positions[a] || []).reduce((s, tx) => s + (tx.type === "buy" ? tx.quantity : -tx.quantity), 0);
-                    const netB = (positions[b] || []).reduce((s, tx) => s + (tx.type === "buy" ? tx.quantity : -tx.quantity), 0);
-                    cmp = netA - netB; break;
-                  }
-                }
-                if (cmp === 0) cmp = a.localeCompare(b);
-                return watchSortDir === "asc" ? cmp : -cmp;
-              }).map((t) => {
+              {sortedWatchlist.map((t) => {
                 const md = watchBatch.market_data[t];
                 const health = watchBatch.financials[t];
                 const cal = watchBatch.earnings_calendar[t];

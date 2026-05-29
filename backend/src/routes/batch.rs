@@ -15,10 +15,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::warn;
 
-use crate::adapters::yahoo_finance::{
-    fetch_earnings_calendar, fetch_earnings_history, fetch_financial_health,
-    fetch_recommendation_trend,
-};
+use crate::adapters::yahoo_finance::fetch_combined_quote_summary;
 use crate::models::{AnalystTrend, EarningsCalendar, EarningsResult, FinancialHealth, StockMarketData};
 use crate::AppState;
 
@@ -124,82 +121,56 @@ async fn get_batch(
         }
     }
 
-    // Fetch crumb-dependent data in parallel (all sharing the same session).
+    // Fetch crumb-dependent data using combined quoteSummary (1 API call per ticker instead of 4).
     if let Some((client, crumb)) = session {
-        // Earnings calendar
-        let cal_tasks: Vec<_> = uncached_cal.into_iter().map(|ticker| {
-            let c = client.clone(); let cr = crumb.clone();
-            tokio::spawn(async move {
-                match fetch_earnings_calendar(&c, &cr, &ticker).await {
-                    Ok(d) => Some((ticker, d)), Err(_) => None,
-                }
-            })
-        }).collect();
-
-        // Earnings history
-        let hist_tasks: Vec<_> = uncached_hist.into_iter().map(|ticker| {
-            let c = client.clone(); let cr = crumb.clone();
-            tokio::spawn(async move {
-                match fetch_earnings_history(&c, &cr, &ticker).await {
-                    Ok(d) => Some((ticker, d)), Err(_) => None,
-                }
-            })
-        }).collect();
-
-        // Analyst trends
-        let analyst_tasks: Vec<_> = uncached_analyst.into_iter().map(|ticker| {
-            let c = client.clone(); let cr = crumb.clone();
-            tokio::spawn(async move {
-                match fetch_recommendation_trend(&c, &cr, &ticker).await {
-                    Ok(d) => Some((ticker, d)), Err(_) => None,
-                }
-            })
-        }).collect();
-
-        // Financial health
-        let fin_tasks: Vec<_> = uncached_fin.into_iter().map(|ticker| {
-            let c = client.clone(); let cr = crumb.clone();
-            tokio::spawn(async move {
-                match fetch_financial_health(&c, &cr, &ticker).await {
-                    Ok(d) => Some((ticker, d)), Err(_) => None,
-                }
-            })
-        }).collect();
-
-        // Collect results and update caches.
-        {
-            let mut cache = state.earnings_calendar_cache.write().await;
-            for task in cal_tasks {
-                if let Ok(Some((ticker, data))) = task.await {
-                    cache.insert(ticker.clone(), data.clone());
-                    earnings_calendar.insert(ticker, data);
-                }
+        // Find tickers that need any crumb-dependent data
+        let mut needs_combined: Vec<String> = Vec::new();
+        let mut combined_set = std::collections::HashSet::new();
+        for t in uncached_cal.iter().chain(uncached_hist.iter()).chain(uncached_analyst.iter()).chain(uncached_fin.iter()) {
+            if combined_set.insert(t.clone()) {
+                needs_combined.push(t.clone());
             }
         }
-        {
-            let mut cache = state.earnings_history_cache.write().await;
-            for task in hist_tasks {
-                if let Ok(Some((ticker, data))) = task.await {
-                    cache.insert(ticker.clone(), data.clone());
-                    earnings_history.insert(ticker, data);
+
+        let combined_tasks: Vec<_> = needs_combined.into_iter().map(|ticker| {
+            let c = client.clone(); let cr = crumb.clone();
+            tokio::spawn(async move {
+                match fetch_combined_quote_summary(&c, &cr, &ticker).await {
+                    Ok(d) => Some((ticker, d)),
+                    Err(e) => { warn!(ticker = %ticker, error = %e, "batch: combined fetch failed"); None }
                 }
-            }
-        }
-        {
-            let mut cache = state.analyst_trends_cache.write().await;
-            for task in analyst_tasks {
-                if let Ok(Some((ticker, data))) = task.await {
-                    cache.insert(ticker.clone(), data.clone());
-                    analyst_trends.insert(ticker, data);
+            })
+        }).collect();
+
+        // Collect results and update all caches.
+        let uncached_cal_set: std::collections::HashSet<_> = uncached_cal.into_iter().collect();
+        let uncached_hist_set: std::collections::HashSet<_> = uncached_hist.into_iter().collect();
+        let uncached_analyst_set: std::collections::HashSet<_> = uncached_analyst.into_iter().collect();
+        let uncached_fin_set: std::collections::HashSet<_> = uncached_fin.into_iter().collect();
+
+        for task in combined_tasks {
+            if let Ok(Some((ticker, data))) = task.await {
+                if uncached_cal_set.contains(&ticker) {
+                    let mut cache = state.earnings_calendar_cache.write().await;
+                    cache.insert(ticker.clone(), data.earnings_calendar.clone());
+                    earnings_calendar.insert(ticker.clone(), data.earnings_calendar);
                 }
-            }
-        }
-        {
-            let mut cache = state.financials_cache.write().await;
-            for task in fin_tasks {
-                if let Ok(Some((ticker, data))) = task.await {
-                    cache.insert(ticker.clone(), data.clone());
-                    financials.insert(ticker, data);
+                if uncached_hist_set.contains(&ticker) {
+                    let mut cache = state.earnings_history_cache.write().await;
+                    cache.insert(ticker.clone(), data.earnings_history.clone());
+                    earnings_history.insert(ticker.clone(), data.earnings_history);
+                }
+                if uncached_analyst_set.contains(&ticker) {
+                    let mut cache = state.analyst_trends_cache.write().await;
+                    cache.insert(ticker.clone(), data.analyst_trends.clone());
+                    analyst_trends.insert(ticker.clone(), data.analyst_trends);
+                }
+                if uncached_fin_set.contains(&ticker) {
+                    if let Some(health) = data.financial_health {
+                        let mut cache = state.financials_cache.write().await;
+                        cache.insert(ticker.clone(), health.clone());
+                        financials.insert(ticker, health);
+                    }
                 }
             }
         }

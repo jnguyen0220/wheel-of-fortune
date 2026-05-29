@@ -18,6 +18,11 @@ const BASE_URL = "";
 
 const inflight = new Map<string, Promise<unknown>>();
 
+// ── Response cache with TTL ──────────────────────────────────────────────────
+
+const CACHE_TTL_MS = 30_000; // 30 seconds
+const responseCache = new Map<string, { data: unknown; ts: number }>();
+
 // ── Generic fetch helper ─────────────────────────────────────────────────────
 
 async function apiFetch<T>(
@@ -25,11 +30,19 @@ async function apiFetch<T>(
   options?: RequestInit,
 ): Promise<T> {
   const method = options?.method ?? "GET";
-  // Only deduplicate GET requests (safe & idempotent)
+  // Only deduplicate/cache GET requests (safe & idempotent)
   const dedupeKey = method === "GET" ? `${method}:${path}` : "";
 
-  if (dedupeKey && inflight.has(dedupeKey)) {
-    return inflight.get(dedupeKey) as Promise<T>;
+  if (dedupeKey) {
+    // Check response cache first
+    const cached = responseCache.get(dedupeKey);
+    if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+      return cached.data as T;
+    }
+    // Check in-flight deduplication
+    if (inflight.has(dedupeKey)) {
+      return inflight.get(dedupeKey) as Promise<T>;
+    }
   }
 
   const promise = (async () => {
@@ -53,7 +66,12 @@ async function apiFetch<T>(
 
   if (dedupeKey) {
     inflight.set(dedupeKey, promise);
-    promise.finally(() => inflight.delete(dedupeKey));
+    promise
+      .then((data) => {
+        responseCache.set(dedupeKey, { data, ts: Date.now() });
+      })
+      .catch(() => {})
+      .finally(() => inflight.delete(dedupeKey));
   }
 
   return promise;

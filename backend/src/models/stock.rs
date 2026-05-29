@@ -41,10 +41,6 @@ impl StockHolding {
         self.shares as f64 * self.current_price
     }
 
-    pub fn unrealized_pnl(&self) -> f64 {
-        (self.current_price - self.cost_basis) * self.shares as f64
-    }
-
     pub fn pnl_percent(&self) -> f64 {
         if self.cost_basis == 0.0 {
             return 0.0;

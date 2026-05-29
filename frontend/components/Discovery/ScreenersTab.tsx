@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import type { DiscoveryItem, FinancialHealth, AnalystTrend } from "@/lib/types";
 import { SCREENER_CATEGORIES, SCREENERS } from "./constants";
 import type { SortField, SortDir } from "./constants";
 import ResultsTable from "./ResultsTable";
+import { useNotification } from "../NotificationContext";
 
 interface ScreenersTabProps {
   activeScreener: string | null;
@@ -16,12 +17,7 @@ interface ScreenersTabProps {
   sortField: SortField;
   sortDir: SortDir;
   toggleSort: (field: SortField) => void;
-  paginatedItems: DiscoveryItem[];
-  totalPages: number;
-  page: number;
-  setPage: (p: number | ((prev: number) => number)) => void;
-  sortedItemsLength: number;
-  PAGE_SIZE: number;
+  sortedItems: DiscoveryItem[];
   loadScreener: (screenerId: string) => void;
   watchlist: string[];
   setWatchlist: (fn: (prev: string[]) => string[]) => void;
@@ -42,12 +38,7 @@ export default function ScreenersTab({
   sortField,
   sortDir,
   toggleSort,
-  paginatedItems,
-  totalPages,
-  page,
-  setPage,
-  sortedItemsLength,
-  PAGE_SIZE,
+  sortedItems,
   loadScreener,
   watchlist,
   setWatchlist,
@@ -69,6 +60,26 @@ export default function ScreenersTab({
   }
 
   const activeScreenerDef = SCREENERS.find((s) => s.id === activeScreener);
+
+  const [searchFilter, setSearchFilter] = useState("");
+  const [selectedTickers, setSelectedTickers] = useState<Set<string>>(new Set());
+  const { notify } = useNotification();
+  const [prevScreener, setPrevScreener] = useState(activeScreener);
+  if (activeScreener !== prevScreener) {
+    setPrevScreener(activeScreener);
+    setSearchFilter("");
+    setSelectedTickers(new Set());
+  }
+
+  const filteredItems = useMemo(() => {
+    if (!searchFilter) return sortedItems;
+    const q = searchFilter.toLowerCase();
+    return sortedItems.filter((item) =>
+      item.ticker.toLowerCase().includes(q) ||
+      (item.name ?? "").toLowerCase().includes(q) ||
+      (healthData[item.ticker]?.name ?? "").toLowerCase().includes(q)
+    );
+  }, [sortedItems, searchFilter, healthData]);
 
   return (
     <div className="flex gap-4 flex-1 min-h-0">
@@ -169,17 +180,70 @@ export default function ScreenersTab({
               <div className="flex items-center gap-2.5">
                 <span className="text-sm">{activeScreenerDef?.icon}</span>
                 <div>
-                  <h4 className="text-[11px] font-bold text-[#c9d1d9]">{activeScreenerDef?.label}</h4>
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-[11px] font-bold text-[#c9d1d9]">{activeScreenerDef?.label}</h4>
+                    <span className="text-[10px] font-medium text-[#8b949e] bg-[#21262d] px-1.5 py-0.5 rounded-full tabular-nums">
+                      {items.length}
+                    </span>
+                  </div>
                   <p className="text-[9px] text-[#484f58]">{activeScreenerDef?.description}</p>
                 </div>
               </div>
-              <span className="text-[10px] font-medium text-[#8b949e] bg-[#21262d] px-2 py-0.5 rounded-full">
-                {items.length} stocks
-              </span>
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-[#484f58]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+                  </svg>
+                  <input
+                    type="text"
+                    value={searchFilter}
+                    onChange={(e) => setSearchFilter(e.target.value)}
+                    placeholder="Filter ticker or name…"
+                    className="w-44 text-[11px] pl-7 pr-2.5 py-1.5 rounded-lg bg-[#0d1117] border border-[#30363d] text-[#c9d1d9] placeholder-[#484f58] focus:outline-none focus:border-[#58a6ff] transition-colors"
+                  />
+                </div>
+                <button
+                  disabled={selectedTickers.size === 0}
+                  onClick={() => {
+                    const itemsToExport = filteredItems.filter((item) => selectedTickers.has(item.ticker));
+                    const headers = ["Ticker", "Name", "Sector", "Price", "Change %", "Health Score"];
+                    const rows = itemsToExport.map((item) => {
+                      const health = healthData[item.ticker];
+                      return [
+                        item.ticker,
+                        `"${(health?.name || item.name || "").replace(/"/g, '""')}"`,
+                        health?.sector || "",
+                        item.price.toFixed(2),
+                        item.change_percent.toFixed(2),
+                        health?.health_score?.toString() || "",
+                      ].join(",");
+                    });
+                    const csv = [headers.join(","), ...rows].join("\n");
+                    const blob = new Blob([csv], { type: "text/csv" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `${activeScreenerDef?.label || "screener"}-export.csv`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    notify(`Exported ${itemsToExport.length} ticker${itemsToExport.length > 1 ? "s" : ""} to CSV`, "success");
+                  }}
+                  className="inline-flex items-center gap-1.5 text-[10px] font-medium px-2.5 py-1.5 rounded-lg bg-[#21262d] border border-[#30363d] text-[#c9d1d9] hover:bg-[#30363d] hover:border-[#484f58] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  title={selectedTickers.size > 0 ? `Export ${selectedTickers.size} selected` : "Select items to export"}
+                >
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                  </svg>
+                  Export
+                  <span className={`min-w-4 h-4 inline-flex items-center justify-center rounded-full text-[9px] font-bold px-1 ${selectedTickers.size > 0 ? "bg-[#58a6ff] text-[#0d1117]" : "bg-[#21262d] text-[#484f58]"}`}>
+                    {selectedTickers.size}
+                  </span>
+                </button>
+              </div>
             </div>
 
             <ResultsTable
-              items={paginatedItems}
+              items={filteredItems}
               healthData={healthData}
               analystData={analystData}
               scrollRef={tableScrollRef}
@@ -192,41 +256,9 @@ export default function ScreenersTab({
               removeFromWatchlist={removeFromWatchlist}
               setSelectedWatch={setSelectedWatch}
               setWatchDetailTab={setWatchDetailTab}
+              selectedTickers={selectedTickers}
+              setSelectedTickers={setSelectedTickers}
             />
-
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between px-4 py-2.5 border-t border-[#30363d] bg-[#161b22]">
-                <span className="text-[10px] text-[#484f58] tabular-nums">
-                  Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, sortedItemsLength)} of {sortedItemsLength}
-                </span>
-                <div className="flex items-center gap-0.5">
-                  <button
-                    type="button"
-                    onClick={() => { setPage((p: number) => Math.max(0, p - 1)); tableScrollRef.current?.scrollTo({ top: 0 }); }}
-                    disabled={page === 0}
-                    className="w-7 h-7 flex items-center justify-center rounded text-[#8b949e] hover:text-[#c9d1d9] hover:bg-[#21262d] disabled:opacity-30 disabled:cursor-not-allowed transition"
-                  >
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-                    </svg>
-                  </button>
-                  <span className="text-[10px] text-[#8b949e] tabular-nums px-2 font-medium">
-                    {page + 1} / {totalPages}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => { setPage((p: number) => Math.min(totalPages - 1, p + 1)); tableScrollRef.current?.scrollTo({ top: 0 }); }}
-                    disabled={page >= totalPages - 1}
-                    className="w-7 h-7 flex items-center justify-center rounded text-[#8b949e] hover:text-[#c9d1d9] hover:bg-[#21262d] disabled:opacity-30 disabled:cursor-not-allowed transition"
-                  >
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-            )}
           </>
         )}
       </div>

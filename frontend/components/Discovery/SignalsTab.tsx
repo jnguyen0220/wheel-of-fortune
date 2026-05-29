@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FinancialHealth, AnalystTrend, PositionTransaction, IvSignal } from "@/lib/types";
 import { healthScoreColor, analystConsensus } from "@/lib/format";
 import TickerLink from "../TickerLink";
 import type { SortDir } from "./constants";
+import { useNotification } from "../NotificationContext";
 
 // Module-level helpers (no allocations per render)
 const regimeLabel = (r: string) => r === "range_bound" ? "Range" : r === "volatile" ? "Volatile" : "Trend";
@@ -59,8 +60,37 @@ export default React.memo(function SignalsTab({
   scanSignals,
 }: SignalsTabProps) {
 
+  const [searchFilter, setSearchFilter] = useState("");
+  const [selectedTickers, setSelectedTickers] = useState<Set<string>>(new Set());
+  const { notify } = useNotification();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [containerHeight, setContainerHeight] = useState(600);
+
+  const ROW_HEIGHT = 44;
+  const OVERSCAN = 5;
+
+  const handleScroll = useCallback(() => {
+    const el = containerRef.current;
+    if (el) {
+      setScrollTop(el.scrollTop);
+      setContainerHeight(el.clientHeight);
+    }
+  }, []);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (el) setContainerHeight(el.clientHeight);
+  }, []);
+
   const sortedSignals = useMemo(() => {
-    return [...signalResults].sort((a, b) => {
+    const filtered = searchFilter
+      ? signalResults.filter((sig) => {
+          const q = searchFilter.toLowerCase();
+          return sig.ticker.toLowerCase().includes(q) || (signalHealth[sig.ticker]?.name ?? "").toLowerCase().includes(q);
+        })
+      : signalResults;
+    return [...filtered].sort((a, b) => {
       const dir = signalSort.dir === "asc" ? 1 : -1;
       if (signalSort.field === "ticker") return dir * a.ticker.localeCompare(b.ticker);
       if (signalSort.field === "sector") return dir * ((signalHealth[a.ticker]?.sector ?? "").localeCompare(signalHealth[b.ticker]?.sector ?? ""));
@@ -72,7 +102,12 @@ export default React.memo(function SignalsTab({
       if (signalSort.field === "regime") return dir * a.regime.localeCompare(b.regime);
       return dir * (a.price - b.price);
     });
-  }, [signalResults, signalSort, signalHealth, signalChains, signalAnalyst]);
+  }, [signalResults, signalSort, signalHealth, signalChains, signalAnalyst, searchFilter]);
+
+  const startIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
+  const endIndex = Math.min(sortedSignals.length, Math.ceil((scrollTop + containerHeight) / ROW_HEIGHT) + OVERSCAN);
+  const visibleSignals = sortedSignals.slice(startIndex, endIndex);
+  const offsetTop = startIndex * ROW_HEIGHT;
 
   return (
     <div className="flex-1 rounded-xl border border-[#21262d] bg-[#0d1117] overflow-hidden flex flex-col min-h-0">
@@ -90,8 +125,21 @@ export default React.memo(function SignalsTab({
               <p className="text-[10px] text-[#8b949e] mt-0.5">IV-ranked opportunities for selling premium</p>
             </div>
           </div>
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-[#484f58]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+              </svg>
+              <input
+                type="text"
+                value={searchFilter}
+                onChange={(e) => setSearchFilter(e.target.value)}
+                placeholder="Filter ticker or name…"
+                className="w-44 text-[11px] pl-7 pr-2.5 py-2 rounded-lg bg-[#0d1117] border border-[#30363d] text-[#c9d1d9] placeholder-[#484f58] focus:outline-none focus:border-[#58a6ff] transition-colors"
+              />
+            </div>
           <button
-            onClick={() => scanSignals()}
+            onClick={() => { setSelectedTickers(new Set()); scanSignals(); }}
             disabled={signalLoading}
             className="inline-flex items-center gap-1.5 text-[11px] px-3.5 py-2 rounded-lg bg-[#21262d] border border-[#30363d] text-[#c9d1d9] hover:bg-[#30363d] hover:border-[#484f58] disabled:opacity-50 transition-all font-medium shadow-sm"
           >
@@ -100,11 +148,52 @@ export default React.memo(function SignalsTab({
             </svg>
             {signalLoading ? "Scanning…" : "Rescan"}
           </button>
+            <button
+              disabled={selectedTickers.size === 0}
+              onClick={() => {
+                const itemsToExport = sortedSignals.filter((sig) => selectedTickers.has(sig.ticker));
+                const headers = ["Ticker", "Name", "Sector", "Price", "Score", "IV Rank", "Regime", "Action", "Health"];
+                const rows = itemsToExport.map((sig) => {
+                  const health = signalHealth[sig.ticker];
+                  return [
+                    sig.ticker,
+                    `"${(health?.name || "").replace(/"/g, '""')}"`,
+                    health?.sector || "",
+                    sig.price.toFixed(2),
+                    Math.round(sig.premium_score).toString(),
+                    Math.round(sig.iv_rank).toString(),
+                    sig.regime,
+                    actionLabel(sig),
+                    health?.health_score?.toString() || "",
+                  ].join(",");
+                });
+                const csv = [headers.join(","), ...rows].join("\n");
+                const blob = new Blob([csv], { type: "text/csv" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "signals-export.csv";
+                a.click();
+                URL.revokeObjectURL(url);
+                notify(`Exported ${itemsToExport.length} signal${itemsToExport.length > 1 ? "s" : ""} to CSV`, "success");
+              }}
+              className="inline-flex items-center gap-1.5 text-[10px] font-medium px-2.5 py-2 rounded-lg bg-[#21262d] border border-[#30363d] text-[#c9d1d9] hover:bg-[#30363d] hover:border-[#484f58] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              title={selectedTickers.size > 0 ? `Export ${selectedTickers.size} selected` : "Select items to export"}
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+              </svg>
+              Export
+              <span className={`min-w-4 h-4 inline-flex items-center justify-center rounded-full text-[9px] font-bold px-1 ${selectedTickers.size > 0 ? "bg-[#58a6ff] text-[#0d1117]" : "bg-[#21262d] text-[#484f58]"}`}>
+                {selectedTickers.size}
+              </span>
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto min-h-0">
+      <div ref={containerRef} className="flex-1 overflow-y-auto min-h-0" onScroll={handleScroll}>
         {signalLoading ? (
           <div className="flex flex-col items-center justify-center h-52 gap-4">
             <div className="relative">
@@ -132,84 +221,133 @@ export default React.memo(function SignalsTab({
           <table className="w-full text-[11px]">
             <thead className="sticky top-0 z-10 bg-[#0d1117]">
               <tr className="text-[9px] text-[#484f58] uppercase tracking-wider border-b border-[#21262d]">
-                <th className="text-center py-2.5 px-2 font-semibold w-9">
-                  <svg className="w-3 h-3 text-[#484f58] mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <th className="px-3 py-2 w-9 align-middle text-center">
+                  <input
+                    type="checkbox"
+                    checked={sortedSignals.length > 0 && sortedSignals.every((sig) => selectedTickers.has(sig.ticker))}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedTickers((prev) => {
+                          const next = new Set(prev);
+                          sortedSignals.forEach((sig) => next.add(sig.ticker));
+                          return next;
+                        });
+                      } else {
+                        setSelectedTickers((prev) => {
+                          const next = new Set(prev);
+                          sortedSignals.forEach((sig) => next.delete(sig.ticker));
+                          return next;
+                        });
+                      }
+                    }}
+                    className="rounded border-[#30363d] bg-[#0d1117] text-[#58a6ff] focus:ring-[#58a6ff] focus:ring-offset-0 w-3.5 h-3.5 cursor-pointer align-middle"
+                  />
+                </th>
+                <th className="px-2 py-2 w-9 align-middle text-center">
+                  <svg className="w-3.5 h-3.5 text-[#d29922] mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.562.562 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.562.562 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" />
                   </svg>
                 </th>
-                <th className="text-left py-2.5 px-2.5 font-semibold cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "ticker", dir: prev.field === "ticker" && prev.dir === "asc" ? "desc" : "asc" }))}>
+                <th className="text-left py-2 px-2.5 font-semibold cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "ticker", dir: prev.field === "ticker" && prev.dir === "asc" ? "desc" : "asc" }))}>
                   <span className="inline-flex items-center gap-1">Ticker {signalSort.field === "ticker" && <span className="text-[#58a6ff]">{signalSort.dir === "asc" ? "↑" : "↓"}</span>}</span>
                 </th>
-                <th className="text-left py-2.5 px-2.5 font-semibold cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "sector", dir: prev.field === "sector" && prev.dir === "asc" ? "desc" : "asc" }))}>
+                <th className="text-left py-2 px-2.5 font-semibold cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "sector", dir: prev.field === "sector" && prev.dir === "asc" ? "desc" : "asc" }))}>
                   <span className="inline-flex items-center gap-1">Sector {signalSort.field === "sector" && <span className="text-[#58a6ff]">{signalSort.dir === "asc" ? "↑" : "↓"}</span>}</span>
                 </th>
-                <th className="text-left py-2.5 px-2.5 font-semibold">Action</th>
-                <th className="text-right py-2.5 px-2.5 font-semibold cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "price", dir: prev.field === "price" && prev.dir === "asc" ? "desc" : "asc" }))}>
+                <th className="text-left py-2 px-2.5 font-semibold">Action</th>
+                <th className="text-right py-2 px-2.5 font-semibold cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "price", dir: prev.field === "price" && prev.dir === "asc" ? "desc" : "asc" }))}>
                   <span className="inline-flex items-center gap-1 justify-end">Price {signalSort.field === "price" && <span className="text-[#58a6ff]">{signalSort.dir === "asc" ? "↑" : "↓"}</span>}</span>
                 </th>
-                <th className="text-center py-2.5 px-2.5 font-semibold cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "score", dir: prev.field === "score" && prev.dir === "desc" ? "asc" : "desc" }))}>
+                <th className="text-center py-2 px-2.5 font-semibold cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "score", dir: prev.field === "score" && prev.dir === "desc" ? "asc" : "desc" }))}>
                   <span className="inline-flex items-center gap-1 justify-center">Score {signalSort.field === "score" && <span className="text-[#58a6ff]">{signalSort.dir === "asc" ? "↑" : "↓"}</span>}</span>
                 </th>
-                <th className="text-center py-2.5 px-2.5 font-semibold cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "ivRank", dir: prev.field === "ivRank" && prev.dir === "desc" ? "asc" : "desc" }))}>
+                <th className="text-center py-2 px-2.5 font-semibold cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "ivRank", dir: prev.field === "ivRank" && prev.dir === "desc" ? "asc" : "desc" }))}>
                   <span className="inline-flex items-center gap-1 justify-center">IV Rank {signalSort.field === "ivRank" && <span className="text-[#58a6ff]">{signalSort.dir === "asc" ? "↑" : "↓"}</span>}</span>
                 </th>
-                <th className="text-center py-2.5 px-2.5 font-semibold cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "regime", dir: prev.field === "regime" && prev.dir === "asc" ? "desc" : "asc" }))}>
+                <th className="text-center py-2 px-2.5 font-semibold cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "regime", dir: prev.field === "regime" && prev.dir === "asc" ? "desc" : "asc" }))}>
                   <span className="inline-flex items-center gap-1 justify-center">Regime {signalSort.field === "regime" && <span className="text-[#58a6ff]">{signalSort.dir === "asc" ? "↑" : "↓"}</span>}</span>
                 </th>
-                <th className="text-center py-2.5 px-2.5 font-semibold cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "health", dir: prev.field === "health" && prev.dir === "desc" ? "asc" : "desc" }))}>
+                <th className="text-center py-2 px-2.5 font-semibold cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "health", dir: prev.field === "health" && prev.dir === "desc" ? "asc" : "desc" }))}>
                   <span className="inline-flex items-center gap-1 justify-center">Health {signalSort.field === "health" && <span className="text-[#58a6ff]">{signalSort.dir === "asc" ? "↑" : "↓"}</span>}</span>
                 </th>
-                <th className="text-center py-2.5 px-2.5 font-semibold cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "analyst", dir: prev.field === "analyst" && prev.dir === "desc" ? "asc" : "desc" }))}>
+                <th className="text-center py-2 px-2.5 font-semibold cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "analyst", dir: prev.field === "analyst" && prev.dir === "desc" ? "asc" : "desc" }))}>
                   <span className="inline-flex items-center gap-1 justify-center">Analyst {signalSort.field === "analyst" && <span className="text-[#58a6ff]">{signalSort.dir === "asc" ? "↑" : "↓"}</span>}</span>
                 </th>
-                <th className="text-center py-2.5 px-2.5 font-semibold cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "chains", dir: prev.field === "chains" && prev.dir === "desc" ? "asc" : "desc" }))}>
+                <th className="text-center py-2 px-2.5 font-semibold cursor-pointer select-none hover:text-[#c9d1d9] transition-colors" onClick={() => setSignalSort(prev => ({ field: "chains", dir: prev.field === "chains" && prev.dir === "desc" ? "asc" : "desc" }))}>
                   <span className="inline-flex items-center gap-1 justify-center">Activity {signalSort.field === "chains" && <span className="text-[#58a6ff]">{signalSort.dir === "asc" ? "↑" : "↓"}</span>}</span>
                 </th>
                 <th className="w-10"></th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#161b22]">
-              {sortedSignals.map((sig) => {
+            <tbody>
+              {offsetTop > 0 && (
+                <tr style={{ height: offsetTop }}>
+                  <td colSpan={13} />
+                </tr>
+              )}
+              {visibleSignals.map((sig) => {
                 const isWatched = watchlist.includes(sig.ticker.toUpperCase());
+                const isSelected = selectedTickers.has(sig.ticker);
                 const score = Math.round(sig.premium_score);
                 const scoreColor = score >= 70 ? "text-[#3fb950]" : score >= 50 ? "text-[#d29922]" : "text-[#f85149]";
                 const hasShares = (positions[sig.ticker] || []).reduce((s, tx) => s + (tx.type === "buy" ? tx.quantity : -tx.quantity), 0) > 0;
                 const ccDisabled = sig.favored_leg === "cc" && !hasShares;
                 return (
-                  <tr key={sig.ticker} className="group hover:bg-[#161b22]/80 transition-colors">
-                    <td className="py-3 px-2 text-center w-9">
+                  <tr key={sig.ticker} className={`group transition-colors duration-100 ${isSelected ? "bg-[#58a6ff08]" : isWatched ? "bg-[#d2992208]" : "hover:bg-[#161b22]/80"}`} style={{ height: ROW_HEIGHT }}>
+                    <td className={`px-3 py-2 align-middle text-center border-b border-[#161b22]`}>
                       <input
                         type="checkbox"
-                        checked={isWatched}
+                        checked={isSelected}
                         onChange={() => {
-                          if (isWatched) {
-                            removeFromWatchlist(sig.ticker);
-                          } else {
-                            const t = sig.ticker.trim().toUpperCase();
-                            if (t) setWatchlist((prev) => prev.includes(t) ? prev : [...prev, t]);
-                          }
+                          setSelectedTickers((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(sig.ticker)) next.delete(sig.ticker);
+                            else next.add(sig.ticker);
+                            return next;
+                          });
                         }}
-                        className="w-3.5 h-3.5 rounded border-[#30363d] bg-[#0d1117] text-[#58a6ff] focus:ring-[#58a6ff] focus:ring-offset-0 cursor-pointer accent-[#58a6ff]"
+                        className="rounded border-[#30363d] bg-[#0d1117] text-[#58a6ff] focus:ring-[#58a6ff] focus:ring-offset-0 w-3.5 h-3.5 cursor-pointer align-middle"
                       />
                     </td>
-                    <td className="py-3 px-2.5">
-                      <div className="flex items-center gap-2">
-                        <div>
-                          <TickerLink ticker={sig.ticker} />
-                          {signalHealth[sig.ticker]?.name && (
-                            <div className="text-[9px] text-[#8b949e] truncate max-w-[140px] mt-0.5">{signalHealth[sig.ticker].name}</div>
-                          )}
-                        </div>
-                      </div>
+                    <td className={`px-2 py-2 align-middle text-center border-b border-[#161b22]`}>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const t = sig.ticker.trim().toUpperCase();
+                          if (isWatched) {
+                            removeFromWatchlist(t);
+                            notify(`Removed ${t} from watchlist`, "info");
+                          } else if (t) {
+                            setWatchlist((prev) => prev.includes(t) ? prev : [...prev, t]);
+                            notify(`Added ${t} to watchlist`, "success");
+                          }
+                        }}
+                        className={`inline-flex items-center justify-center w-6 h-6 rounded transition-colors ${
+                          isWatched
+                            ? "text-[#d29922] bg-[#d29922]/10 hover:bg-[#d29922]/20"
+                            : "text-[#484f58] hover:text-[#d29922] hover:bg-[#d29922]/10"
+                        }`}
+                        title={isWatched ? `Remove ${sig.ticker} from watchlist` : `Add ${sig.ticker} to watchlist`}
+                      >
+                        <svg className="w-3.5 h-3.5" fill={isWatched ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.562.562 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.562.562 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" />
+                        </svg>
+                      </button>
                     </td>
-                    <td className="py-3 px-2.5">
+                    <td className="py-2 px-2.5 align-middle border-b border-[#161b22]">
+                      <TickerLink ticker={sig.ticker} className="font-bold text-[11px] text-[#58a6ff] tracking-wide uppercase hover:underline cursor-pointer" />
+                      {signalHealth[sig.ticker]?.name && (
+                        <span className="text-[9px] text-[#8b949e] truncate max-w-[140px] block leading-tight">{signalHealth[sig.ticker].name}</span>
+                      )}
+                    </td>
+                    <td className="py-2 px-2.5 align-middle border-b border-[#161b22]">
                       {signalHealth[sig.ticker]?.sector ? (
                         <span className="text-[9px] text-[#8b949e] bg-[#21262d] px-1.5 py-0.5 rounded">{signalHealth[sig.ticker].sector}</span>
                       ) : (
                         <span className="text-[#30363d]">—</span>
                       )}
                     </td>
-                    <td className="py-3 px-2.5">
+                    <td className="py-2 px-2.5 align-middle border-b border-[#161b22]">
                       {ccDisabled ? (
                         <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-medium bg-[#21262d] border border-[#30363d] text-[#6e7681]">
                           Sell Call — No shares
@@ -221,10 +359,10 @@ export default React.memo(function SignalsTab({
                         </span>
                       )}
                     </td>
-                    <td className="py-3 px-2.5 text-right">
+                    <td className="py-2 px-2.5 text-right align-middle border-b border-[#161b22]">
                       <span className="text-[#f0f6fc] tabular-nums font-semibold">${sig.price.toFixed(2)}</span>
                     </td>
-                    <td className="py-3 px-2.5 text-center">
+                    <td className="py-2 px-2.5 text-center align-middle border-b border-[#161b22]">
                       <div className="flex items-center justify-center gap-1.5" title={sig.action}>
                         <div className="flex gap-px">
                           {Array.from({ length: 5 }).map((_, i) => (
@@ -234,17 +372,17 @@ export default React.memo(function SignalsTab({
                         <span className={`text-[10px] font-bold tabular-nums ${scoreColor}`}>{score}</span>
                       </div>
                     </td>
-                    <td className="py-3 px-2.5 text-center">
+                    <td className="py-2 px-2.5 text-center align-middle border-b border-[#161b22]">
                       <span className={`text-[10px] font-bold tabular-nums ${sig.iv_rank >= 60 ? "text-[#3fb950]" : sig.iv_rank >= 40 ? "text-[#d29922]" : "text-[#f85149]"}`} title={`IV/HV ratio: ${sig.iv_hv_ratio.toFixed(2)} | ATM IV: ${(sig.atm_iv * 100).toFixed(0)}% | HV20: ${(sig.hv_20 * 100).toFixed(0)}%`}>
                         {Math.round(sig.iv_rank)}%
                       </span>
                     </td>
-                    <td className="py-3 px-2.5 text-center">
+                    <td className="py-2 px-2.5 text-center align-middle border-b border-[#161b22]">
                       <span className={`text-[10px] font-semibold ${regimeColor(sig.regime)}`}>
                         {regimeLabel(sig.regime)}
                       </span>
                     </td>
-                    <td className="py-3 px-2.5 text-center">
+                    <td className="py-2 px-2.5 text-center align-middle border-b border-[#161b22]">
                       {signalHealth[sig.ticker] ? (
                         <span className={`inline-flex items-center justify-center w-8 h-5 rounded text-[10px] font-bold tabular-nums ${healthScoreColor(signalHealth[sig.ticker].health_score)} bg-current/8`}>
                           <span className={healthScoreColor(signalHealth[sig.ticker].health_score)}>{signalHealth[sig.ticker].health_score}</span>
@@ -253,7 +391,7 @@ export default React.memo(function SignalsTab({
                         <span className="text-[#30363d]">—</span>
                       )}
                     </td>
-                    <td className="py-3 px-2.5 text-center">
+                    <td className="py-2 px-2.5 text-center align-middle border-b border-[#161b22]">
                       {(() => {
                         const c = analystConsensus(signalAnalyst[sig.ticker]);
                         const a = signalAnalyst[sig.ticker];
@@ -266,7 +404,7 @@ export default React.memo(function SignalsTab({
                         );
                       })()}
                     </td>
-                    <td className="py-3 px-2.5 text-center">
+                    <td className="py-2 px-2.5 text-center align-middle border-b border-[#161b22]">
                       {signalChains[sig.ticker] != null ? (
                         <div className="flex items-center justify-center gap-1">
                           <span
@@ -278,7 +416,7 @@ export default React.memo(function SignalsTab({
                         <span className="text-[#30363d]">—</span>
                       )}
                     </td>
-                    <td className="py-3 px-2 text-center w-10">
+                    <td className="py-2 px-2 text-center align-middle w-10 border-b border-[#161b22]">
                       <button
                         onClick={(e) => { e.stopPropagation(); setSelectedWatch(sig.ticker); setWatchDetailTab("position"); }}
                         className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-[#58a6ff] bg-[#58a6ff]/8 hover:bg-[#58a6ff]/15 border border-transparent hover:border-[#58a6ff]/25 transition-all opacity-60 group-hover:opacity-100"
@@ -292,6 +430,11 @@ export default React.memo(function SignalsTab({
                   </tr>
                 );
               })}
+              {endIndex < sortedSignals.length && (
+                <tr style={{ height: (sortedSignals.length - endIndex) * ROW_HEIGHT }}>
+                  <td colSpan={13} />
+                </tr>
+              )}
             </tbody>
           </table>
         )}

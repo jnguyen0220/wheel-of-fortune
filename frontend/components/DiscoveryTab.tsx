@@ -22,8 +22,6 @@ export default function DiscoveryTab() {
   const [analystData, setAnalystData] = useState<Record<string, AnalystTrend[]>>({});
   const [sortField, setSortField] = useState<SortField>("rank");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
-  const [page, setPage] = useState(0);
-  const PAGE_SIZE = 24;
   const prefetched = useRef(false);
   const resultsRef = useRef<HTMLDivElement>(null);
   const tableScrollRef = useRef<HTMLDivElement>(null);
@@ -200,7 +198,6 @@ export default function DiscoveryTab() {
       setSortField(field);
       setSortDir("asc");
     }
-    setPage(0);
   }
 
   async function loadScreener(screenerId: string) {
@@ -211,7 +208,6 @@ export default function DiscoveryTab() {
     setHealthData({});
     setSortField("rank");
     setSortDir("asc");
-    setPage(0);
     resultsRef.current?.scrollTo({ top: 0 });
     try {
       const results = await getDiscovery(screenerId);
@@ -330,8 +326,6 @@ export default function DiscoveryTab() {
       return sortDir === "asc" ? cmp : -cmp;
     });
   }, [items, sortField, sortDir, healthData, analystData]);
-  const totalPages = Math.ceil(sortedItems.length / PAGE_SIZE);
-  const paginatedItems = sortedItems.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   // Convert search results to DiscoveryItem shape for the shared table
   const searchAsItems = React.useMemo<DiscoveryItem[]>(() => searchResults.map((r, i) => {
@@ -437,12 +431,7 @@ export default function DiscoveryTab() {
           sortField={sortField}
           sortDir={sortDir}
           toggleSort={toggleSort}
-          paginatedItems={paginatedItems}
-          totalPages={totalPages}
-          page={page}
-          setPage={setPage}
-          sortedItemsLength={sortedItems.length}
-          PAGE_SIZE={PAGE_SIZE}
+          sortedItems={sortedItems}
           loadScreener={loadScreener}
           watchlist={watchlist}
           setWatchlist={setWatchlist}

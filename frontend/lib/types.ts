@@ -9,11 +9,11 @@ export interface Candle {
   volume: number;
 }
 
-export type OptionType = "CALL" | "PUT";
+type OptionType = "CALL" | "PUT";
 
-export type WheelLeg = "cash_secured_put" | "covered_call";
+type WheelLeg = "cash_secured_put" | "covered_call";
 
-export interface StockHolding {
+interface StockHolding {
   id: string;
   ticker: string;
   shares: number;
@@ -21,7 +21,7 @@ export interface StockHolding {
   current_price: number;
 }
 
-export interface Inventory {
+interface Inventory {
   holdings: StockHolding[];
 }
 
@@ -233,8 +233,8 @@ export interface OptionsOrder {
 
 // ── IV Signal types ──────────────────────────────────────────────────────────
 
-export type MarketRegime = "range_bound" | "trending" | "volatile";
-export type FavoredLeg = "csp" | "cc" | "both";
+type MarketRegime = "range_bound" | "trending" | "volatile";
+type FavoredLeg = "csp" | "cc" | "both";
 
 export interface IvSignal {
   ticker: string;

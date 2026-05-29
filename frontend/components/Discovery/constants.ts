@@ -2,14 +2,14 @@ export type SortField = "rank" | "ticker" | "price" | "health" | "rating";
 export type WatchSortField = "ticker" | "price" | "health" | "name" | "sector" | "analyst" | "positions";
 export type SortDir = "asc" | "desc";
 
-export interface ScreenerDef {
+interface ScreenerDef {
   id: string;
   label: string;
   description: string;
   icon: string;
 }
 
-export interface ScreenerCategory {
+interface ScreenerCategory {
   label: string;
   screeners: ScreenerDef[];
 }

@@ -297,7 +297,7 @@ export default function MyPositionsTab() {
             </tbody>
           </table>
 
-          {filteredTickers.map(({ ticker, txns, netShares, avgCost, txnCount, lots, realizedPnl, netCashFlow, lastActive }) => {
+          {filteredTickers.map(({ ticker, txns, netShares, avgCost, txnCount, lots, netCashFlow, lastActive }) => {
             const isCollapsed = collapsed[ticker] ?? true;
             return (
               <div key={ticker} className="border border-[#21262d] rounded-lg overflow-hidden bg-[#0d1117]">

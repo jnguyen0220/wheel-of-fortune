@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { PositionTransaction, OptionsOrder } from "@/lib/types";
 import { useLocalStorageState } from "@/lib/hooks";
 import { useContractExpiration } from "@/lib/useContractExpiration";
@@ -8,6 +8,7 @@ import DiscoveryTab from "./DiscoveryTab";
 import MyPositionsTab from "./MyPositionsTab";
 import MyContractsTab from "./MyContractsTab";
 import { HealthPopupProvider } from "./HealthPopupContext";
+import { NotificationProvider } from "./NotificationContext";
 
 function DisclaimerPopup({ open, onClose }: { open: boolean; onClose: () => void }) {
   if (!open) return null;
@@ -85,12 +86,12 @@ export default function WheelAdvisor() {
   // Read positions & orders for badge counts
   const [badgePositions] = useLocalStorageState<Record<string, PositionTransaction[]>>("wof-positions", {});
   const [badgeOrders] = useLocalStorageState<OptionsOrder[]>("wof-orders", []);
-  const openPositionCount = Object.values(badgePositions).filter(txns => {
+  const openPositionCount = useMemo(() => Object.values(badgePositions).filter(txns => {
     const buys = txns.filter(t => t.type === "buy").reduce((s, t) => s + t.quantity, 0);
     const sells = txns.filter(t => t.type === "sell").reduce((s, t) => s + t.quantity, 0);
     return buys - sells > 0;
-  }).length;
-  const openOrderCount = badgeOrders.filter(o => o.status === "open").length;
+  }).length, [badgePositions]);
+  const openOrderCount = useMemo(() => badgeOrders.filter(o => o.status === "open").length, [badgeOrders]);
 
   const switchTab = useCallback((tab: TopTab) => {
     setActiveTab(tab);
@@ -123,6 +124,7 @@ export default function WheelAdvisor() {
   }, []);
 
   return (
+    <NotificationProvider>
     <HealthPopupProvider>
     <div className="h-screen flex flex-col bg-[#0d1117] overflow-hidden">
       {/* Header */}
@@ -215,5 +217,6 @@ export default function WheelAdvisor() {
       <DisclaimerPopup open={disclaimerOpen} onClose={handleDisclaimerClose} />
     </div>
     </HealthPopupProvider>
+    </NotificationProvider>
   );
 }
